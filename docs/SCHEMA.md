@@ -371,7 +371,7 @@ export const COUNTDOWN = {
 |--------------|-------------------|-------------------|
 | `lobby` | `banker_selection` | Host sends `start_game`; `players.size >= 2` |
 | `banker_selection` | `betting` | Server selects initial banker (random) and sets `currentBankerId` |
-| `betting` | `dealing` | Banker sends `set_bet_amount`; at least 1 non-banker player called |
+| `betting` | `dealing` | All non-banker players have acted (called/folded) with ≥1 caller; OR betting countdown (30s) expires with ≥1 caller. `set_bet_amount` must have been sent before transition. |
 | `betting` | `round_end` | All non-banker players folded (forfeit / no-game path) |
 | `dealing` | `reveal` | All active players' cards distributed; `ready_for_reveal` or countdown expires |
 | `reveal` | `settling` | Reveal countdown (10s) expires or all called players mark ready |
