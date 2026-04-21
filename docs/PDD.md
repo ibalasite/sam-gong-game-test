@@ -107,7 +107,7 @@
 | 面朝上 — 數字牌（2–9）| 白色牌面（`#FEFEFE`）；左上/右下角顯示點數 + 花色；中央大花色符號 | `card_[suit]_[value].png` |
 | 面朝上 — 人頭牌（10/J/Q/K）| 白色牌面；像素人物插圖；10/J/Q/K 字樣；此牌計分為 0 點 | `card_[suit]_[face].png` |
 | 面朝上 — A 牌 | 白色牌面；大 A 字樣；計分為 1 點 | `card_[suit]_a.png` |
-| 三公高亮（Sam Gong）| 金色（`#D4AF37`）邊框光暈動畫；牌面正常顯示；Server 廣播 `is_sam_gong=true` 後觸發 | `card_[suit]_[face].png` + `fx_sam_gong_glow.png` |
+| 三公高亮（Sam Gong）| 金色（`#D4AF37`）邊框光暈動畫；牌面正常顯示；Server 廣播 `is_sam_gong=true` 後觸發 | `card_[suit]_[face].png` + `fx_sam_gong_glow.png`（靜態光暈 Sprite，三公牌面疊加用；動畫版見 fx_sam_gong_glow.anim in §6.4）|
 | 禁用（disabled）| 灰階濾鏡（brightness 60%）；棄牌（Fold）玩家的牌保持 face-down 不翻開 | — |
 
 > **card_back.png 設計規格（供美術參考）：**
@@ -425,7 +425,7 @@
 - 確認後觸發登出，跳轉至 SCR-004 登出狀態
 
 **未成年牌局中觸發（underage, mid-game）：**
-- 觸發條件：Server 廣播 `anti_addiction_signal`，payload `{ type: "underage", daily_minutes_remaining: 0 }`（牌局進行中，每日 2 小時已用盡）
+- 觸發條件：Server 廣播 `anti_addiction_signal`，payload `{ type: "underage", daily_minutes_remaining: 0, midnight_timestamp: number }`（牌局進行中，每日 2 小時已用盡；`midnight_timestamp` = 台灣時間次日 00:00 對應的 Unix ms，即 UTC 前一日 16:00）
 - 顯示方式：頂部非強制 banner（非全螢幕 overlay）：「今日遊玩即將達上限，本局結算後將自動登出」；橙色背景 `#E67E22`；高度 36pt；不阻斷遊戲操作
 - 本局結算完成後，關閉 banner，改顯示 CMP-010 未成年 2h 強制停止版全螢幕 overlay，執行強制登出
 
@@ -434,7 +434,7 @@
 | 訊號類型 | Server 訊息名稱 | Payload | 行為 |
 |---------|--------------|---------|------|
 | 成人 2h 提醒 | `anti_addiction_warning` | `{ type: "adult", session_minutes: 120 }` | 顯示可繼續 popup；確認後重置計時器；2h 後再次觸發 |
-| 未成年 2h 硬停 | `anti_addiction_signal` | `{ type: "underage", daily_minutes_remaining: 0 }` | 牌局中顯示 banner；局後強制登出；每日 00:00（UTC+8）重置 |
+| 未成年 2h 硬停 | `anti_addiction_signal` | `{ type: "underage", daily_minutes_remaining: 0, midnight_timestamp: number }` | 牌局中顯示 banner；局後強制登出；每日 00:00（UTC+8）重置；`midnight_timestamp` 由 Server 計算（台灣時間次日 00:00 對應的 Unix ms）；Client 以 `midnight_timestamp - Date.now()` 顯示倒數 |
 
 **救濟籌碼補發通知（Rescue Chips Notification）：**
 - 樣式：底部 Toast 通知；高度 48pt；背景 `#27AE60`；圓角 8pt；顯示 3 秒後自動消失
@@ -1325,9 +1325,10 @@ SCR-007 底部玩家資訊列中的「籌碼：N」來源：
 ```
 
 **未成年版行為規格：**
-- 觸發：Server 廣播 `anti_addiction_signal { type: "underage", daily_minutes_remaining: 0 }`（於牌局外立即全螢幕顯示；牌局中先顯示 banner，本局結算後才切換至此全螢幕版）
+- 觸發：Server 廣播 `anti_addiction_signal { type: "underage", daily_minutes_remaining: 0, midnight_timestamp: number }`（於牌局外立即全螢幕顯示；牌局中先顯示 banner，本局結算後才切換至此全螢幕版）
 - 僅顯示「確認登出」按鈕，無「繼續遊戲」選項；遊戲功能完全鎖定
 - 倒數計時器：顯示距離今日 00:00（UTC+8）的剩餘時間（Client 以 `midnight_timestamp - Date.now()` 計算）
+- `midnight_timestamp` 由 Server 計算（台灣時間次日 00:00 對應的 Unix ms）；Client 以 `midnight_timestamp - Date.now()` 顯示倒數；Server payload 定義見 CMP-010 `anti_addiction_signal`
 - 確認後：執行登出流程，跳轉至 SCR-004 登出狀態
 - 重置時間：每日 00:00（UTC+8）Server 端重置未成年每日遊玩時間，不由 Client 計算
 
@@ -1446,6 +1447,8 @@ i18n key: `settings.logout_confirm_midgame` = '您正在遊戲中！離開將視
 | 返回（任意） | Slide Right | 0.25s | ease-in | |
 | Overlay Push (SCR-009/011/012) | Fade In + Slide Up | 0.2s | ease-out | |
 | Overlay Dismiss | Fade Out + Slide Down | 0.15s | ease-in | |
+| SCR-004 → SCR-010 | Slide Left | 0.25s | ease-out | 大廳排行榜入口 |
+| SCR-010 → SCR-004 | Slide Right | 0.25s | ease-in | 排行榜返回大廳 |
 | SCR-004 → SCR-013/014/015 | Slide Left | 0.25s | ease-out | |
 | SCR-004 → SCR-016 | Slide Left | 0.25s | ease-out | 購買籌碼入口 |
 | SCR-013 → SCR-016 | Slide Left | 0.25s | ease-out | 充值入口 |
@@ -1526,7 +1529,7 @@ i18n key: `settings.logout_confirm_midgame` = '您正在遊戲中！離開將視
   2. 金色光暈從牌面向外擴散（Particle 效果）：0.3s
   3. 「三公！」文字從牌面中央升起並淡出：0.5s（monospace 20pt，`#D4AF37`）
 - 總時長：1.0s
-- 資源：`fx_sam_gong_glow.anim`、`fx_sam_gong_particles.png`
+- 資源：`fx_sam_gong_glow.anim`（Spine/序列幀動畫；靜態版 fx_sam_gong_glow.png 用於 CMP-001 三公狀態疊加）、`fx_sam_gong_particles.png`
 
 🔊 音效：`sfx_sam_gong_fanfare.mp3`（三公出現，最高優先級打斷其他音效）
 
@@ -2012,6 +2015,8 @@ Canvas（設計解析度：750×1334）
 | 籌碼 | `chip_{denomination}.png` | `chip_100.png`、`chip_1000000.png` |
 | UI 圖示 | `ic_{name}.png` | `ic_crown.png`、`ic_disconnect.png` |
 | 特效 | `fx_{name}.png` / `fx_{name}.anim` | `fx_sam_gong_glow.png`、`fx_deal_card.anim` |
+
+> **三公光暈資源說明：** 三公光暈使用兩個版本：靜態 `fx_sam_gong_glow.png`（三公手牌持續疊加光暈，用於 CMP-001 三公高亮狀態疊加）；動畫 `fx_sam_gong_glow.anim`（三公揭示動畫序列，用於 §6.4 Sam Gong Reveal 動畫）。兩個資源並存，職責不同。
 | 背景 | `bg_{name}.png` | `bg_table_felt.png`、`bg_lobby.png` |
 | 頭像預設 | `avatar_default_{n}.png` | `avatar_default_1.png` |
 | 字型 | `font_{name}.ttf` | `font_pixel.ttf`、`font_mono.ttf` |
