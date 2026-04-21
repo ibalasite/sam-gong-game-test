@@ -168,9 +168,8 @@
 | O2（留存/社群） | 排行榜週榜活躍玩家數≥N | REQ-006（排行榜） | UT/IT: IT-rank-001; BDD S-006（STEP-15回填） | 🔲 待填 |
 | O2（社群參與） | 聊天訊息日均發送量≥N | REQ-007（聊天室） | UT/IT: IT-chat-001; BDD S-007（STEP-15回填） | 🔲 待填 |
 | O3：變現 | ARPPU ≥ USD 10 | REQ-020b（Should Have，IAP/廣告） | BDD S-020b（REQ-020b IAP/廣告）| ✅ PRD已對應 |
-| O2 | 每日任務完成率≥40%（Should） | REQ-021每日任務系統 | BDD Scenario S-021 | 🔲 待填 |
 | O4：品類擴展 | 1 個新品類 | （未來 PRD v2） | N/A | 🔲 待 v2 |
-| O1 | 發牌/翻牌/結算動畫完成率 ≥ 60 fps（§5.3 UI）| REQ-013 UI/Animation | BDD Scenario S-013 | ✅ PRD已對應 |
+| O1 | 動畫流暢度：基準裝置≥30fps；旗艦機型目標≥60fps（§5.3 UI）| REQ-013 UI/Animation | BDD Scenario S-013 | ✅ PRD已對應 |
 | O2 | 帳號系統：日留存率（§5.3 Account）| REQ-014 Account | BDD Scenario S-014 | ✅ PRD已對應 |
 | 法規合規（§9）| 防沉迷合規100%（§5.3 Anti-Addiction）| REQ-015 AntiAddiction | BDD Scenario S-015 | ✅ PRD已對應 |
 | 法規合規（§9）| Cookie同意橫幅覆蓋率（§9.0）| REQ-016 Cookie | BDD Scenario S-016 | ✅ PRD已對應 |
@@ -278,13 +277,13 @@
 | 虛擬籌碼商店（IAP）**【F2條件：依法律意見書啟用】** | Should Have | O3 | 1. IAP 交易成功率 ≥ 99%；2. 支付失敗退款流程 ≤ 24 小時；**【F21 廣告降級模式】** 3. 廣告降級模式候選 SDK：Google AdMob；每次廣告獎勵：500 籌碼；每日廣告觀看上限：5 次；廣告播放完成率 AC：已觀看廣告中完整觀看比例 ≥ 80%（由 AdMob SDK 回傳確認）|
 | 排行榜 | Could Have | O2 | 1. 排行榜數據更新延遲 ≤ 1 分鐘；2. 支援週榜/月榜切換 |
 | 聊天室（房間內）**【F15 合規備注】** 含關鍵字過濾、舉報機制、訊息留存 30 日 | Could Have | O2 | 1. 敏感關鍵字過濾覆蓋率 ≥ 95%；2. 舉報後 24 小時內審核處理 |
-| **VIP 訂閱系統（F13）** | **Won't Have（v1.0）**（Out of Scope，v1.x Backlog REQ-021（詳見§3.4腳注）） | O3 | N/A（v1.0 不實作；功能描述：VIP月費 USD 9.99；權益包含每日額外籌碼獎勵 +50%、VIP 頭像框、優先配對；列入 v1.x Backlog） |
+| **VIP 訂閱系統（F13）** | **Won't Have（v1.0）**（Out of Scope，v1.x Backlog（無v1.0 REQ-ID，待v1.x PRD分配）） | O3 | N/A（v1.0 不實作；功能描述：VIP月費 USD 9.99；權益包含每日額外籌碼獎勵 +50%、VIP 頭像框、優先配對；列入 v1.x Backlog） |
 | Cookie 同意橫幅（Web 平台）| Must Have | 法規合規（§9）| 1. Web 首次載入顯示 Cookie 同意橫幅；2. 必要/分析/行銷 Cookie 三類分別取得同意；3. 同意紀錄含時間戳+版本號，保留 3 年；4. 歐盟 IP（CloudFlare CF-IPCountry偵測）觸發 GDPR opt-in（非 pre-checked）；5. 用戶可隨時撤回同意（帳號設定頁）|
 | 新手引導教學（Tutorial Onboarding）| Must Have | O2 | AC：首次登入玩家的教學完成率 ≥ 60%（Launch+1M量測，分母為當月首次登入帳號數）；教學包含：三公規則說明、**3輪固定劇本模擬牌局（詳見PRD REQ-012 AC-5）**（不消耗籌碼）、籌碼系統說明；完成後解鎖正式對戰入口；**模擬牌局邏輯由 Server 執行（tutorial_mode=true，籌碼扣除邏輯跳過）；Client 僅呈現動畫，與正式牌局相同 Server-authoritative 路徑** |
 | 多語系（英、簡中）| Won't Have（v1.0） | — | N/A |
 | 其他撲克品類 | Won't Have（v1.0） | O4 | N/A |
 
-> ★ **虛擬籌碼每日贈送腳注：** PRD已升級為Must Have（決策日2026-04-22）；BRD將於下次審查時同步。升級原因：每日贈送籌碼直接驅動留存（Retention），已成為O2 Must達成條件的關鍵依賴；詳見PRD Change Log v0.3-draft。
+> ★ **虛擬籌碼每日贈送腳注：** PRD已升級為Must Have；升級決策記入D14。
 
 **Out of Scope（明確排除）：**
 - ❌ 真實金錢下注（法規風險）。
@@ -351,7 +350,7 @@
 5. Server 比牌（依 §5.5 比牌規則）→ 計算結算金額
 6. **結算與籌碼分配（三步驟）**：
    - Step 6a（確認結果與底池）：Server 確認每位閒家的比牌結果；莊家獲勝之閒家下注額歸入底池；棄牌（Fold）閒家下注額=0，不下注，不入底池；莊家敗之閒家下注額不入底池（由莊家直接支付本金 1× + 賠率 N×）。
-   - Step 6b（抽水）：從底池（輸家閒家下注額加總）扣除 5% 抽水（floor 取整，最少 1 籌碼）；抽水進入遊戲維運基金。
+   - Step 6b（抽水）：從底池（輸家閒家下注額加總）扣除 5% 抽水（floor 取整，最少 1 籌碼）；抽水進入遊戲維運基金。**空底池守衛：若底池=0（全員棄牌），則抽水=0，最少1籌碼條款不適用；最少1籌碼僅在底池>0時生效。**
    - Step 6c（分配）：閒家勝時，莊家直接支付給該閒家：本金（1× 下注額，不經底池）+ N× 下注額賠率；合計閒家總取回 = (1+N)× 下注額，淨利潤 = N× 下注額。莊家勝時，底池中閒家下注額（扣 5% 抽水後）歸莊家。抽水僅從莊家獲勝收取的閒家下注額中扣除；閒家勝時的本金與賠率由莊家全額支付，不受抽水影響。結算完成後 Server 廣播最終狀態至所有 Client。
 
 #### 基礎規則
@@ -749,7 +748,7 @@ timeline
 | Matchmaking | 配對系統，依籌碼等級/牌技/等待時間將玩家配入房間 |
 | **NPS** | Net Promoter Score，淨推薦值，衡量用戶推薦意願（-100 到 +100），本專案用於衡量公平性信任度 |
 | **OTP** | One-Time Password，一次性密碼。用於手機驗證（SMS 傳送 6 碼數字），有效期 5 分鐘，防止帳號被盜用或偽造年齡 |
-| Rake / 抽水 | 每局牌局系統從莊家淨獲利（輸家閒家下注額加總）中扣取的手續費，固定為 5%（floor取整，最少 1 籌碼）；閒家獲勝局的本金與賠率由莊家全額支付，不另收抽水。 |
+| Rake / 抽水 | 每局牌局系統從底池（輸家閒家下注額加總）扣取的手續費，固定為5%（floor取整，最少1籌碼，底池>0時生效）；扣除後剩餘底池歸莊家。 |
 | Server-authoritative | 伺服器權威架構，所有遊戲邏輯與狀態由伺服器決定，Client 僅呈現 |
 | **Server-side Rendering（SSR）** | 本專案**不適用**；Cocos Creator 為 Client-side 渲染引擎 |
 | Virtual Chip（虛擬籌碼） | 遊戲內娛樂性貨幣，無法兌換現金或實體物品，無真實財務價值 |
