@@ -35,8 +35,8 @@
 | v0.9-draft | 2026-04-22 | STEP-04 Review Round 9 (14 fixes) | §4a版本鎖定表、詐欺SOP、empty-pot guard |
 | v0.10-draft | 2026-04-22 | STEP-04 Review Round 10 (7 fixes) | 三公glossary、§8.1來源、成人2h測試向量 |
 | v0.11-draft | 2026-04-22 | STEP-04 Review Round 11 fix (Round 11 fixes) | F1~F9修正（BRD D15 Won't→Should Have說明、PRD Change Log v0.4-v0.11條目補齊、NFR-17 BRD R4→R10來源、REQ-006 AC-7平手語義統一、BRD NFR-17 Refresh Token規格、O12欄位對齊、BRD §5.4 500-999邊緣情況補每日任務、REQ-005 D15引用、§8.6 OTP/KYC/AdMob降級場景） |
-| v0.12-draft | 2026-04-22 | STEP-04 Review Round 12 fix (8 fixes): ties net_chips:0, §5.4 label 0-8pt非三公, §5.3 empty-pot 3rd case, REQ-017 rolling-window label, AC-7 23:59:59, Change Log v0.11 date, REQ-006 AC-7→AC-8 fix note, §5.1 Step 6c wording | 8個問題修正 |
-| v0.13-draft | 2026-04-22 | STEP-04 Review Round 13 fix (6 fixes): Change Log dates 04-21→04-22, BRD v0.5-v0.12 dates, §5.3 anti-addiction O1→O合規, REQ-006 AC-8 label, all-fold banker schema note, v0.3b-draft dedup | 6個問題修正 |
+| v0.12-draft | 2026-04-22 | STEP-04 Review | Round 12 fix (8 fixes): ties net_chips:0, §5.4 label 0-8pt非三公, §5.3 empty-pot 3rd case, REQ-017 rolling-window label, AC-7 23:59:59, Change Log v0.11 date, REQ-006 AC-8 rename, §5.1 Step 6c wording |
+| v0.13-draft | 2026-04-22 | STEP-04 Review | Round 13 fix (6 fixes): Change Log dates 04-21→04-22, BRD v0.5-v0.12 dates, §5.3 anti-addiction O1→O合規, REQ-006 AC-8 label, all-fold banker schema note, v0.3b-draft dedup |
 | v0.14-draft | 2026-04-22 | STEP-04 Review Round 14 fix (18 fixes): F1 REQ-004 AC-1 §5.5→§5.3, F2 §5.4 F14 1-7→1-8點, F3 BRD §5.5 Step 6b 空底池守衛擴充, F4 REQ-006 AC-8 tx_type清單補齊, F5 Change Log v0.12/v0.13新增, F6 v0.11 (this round)→(Round 11 fixes), F7 BRD日期修正, F8 BRD建立方式更新, F9 BRD狀態修正, F10 BRD O合規目標新增, F11 REQ-021 AC-1版本參考更新, F12 REQ-016 Dependencies循環依賴修正, F13 BRD RTM O2 ≥N指標填充, F14 REQ-020a Note D14引用, F15 §1.2 O2升級自說明, F16 PRD Glossary跨參BRD, F17 REQ-003/004標題BRD §5.5, F18 BRD NFR-19描述擴充 | 18個問題修正 |
 
 ---
@@ -53,8 +53,8 @@
 |--------|---------|------------|------------|----------------|
 | **O1** | 推出 Server-authoritative 公平三公多人遊戲；GA 目標 **2026-08-21**；Server 權威計算率 100%，Client 無任何結果計算邏輯 | REQ-001, REQ-002, REQ-003, REQ-004, REQ-017（反作弊） | BDD S-001（REQ-001 洗牌）, S-002（REQ-002 發牌）, S-003（REQ-003 比牌）, S-004（REQ-004 結算）, S-017（REQ-017 反作弊；另含IT-anticheat-001整合測試）+ IT-fraud-001（§9.1a詐欺SOP）；BDD場景詳細內容於STEP-15生成；S-ID已預先保留，確保追溯鏈完整 | REQ-001: UT-shuffle-001（Fisher-Yates 分佈均勻性）；REQ-002: UT-deal-001（發牌三張正確性）；REQ-003: UT-compare-001（比牌向量測試集 ≥ 200）；REQ-004: IT-settlement-001（籌碼守恆並發測試）|
 | **O2** | 建立穩定同時在線（CCU）基礎；Peak CCU ≥ 500，DAU ≥ 2,000（**≤ 2027-02-21**） | REQ-010（配對）, REQ-011（房間狀態）, REQ-012（新手引導）, REQ-013（UI/動畫）, REQ-014（帳號驗證）, REQ-021, REQ-020a（Must Have，留存驅動，升級自Should Have（D14，2026-04-22）） | BDD S-010（REQ-010 配對）, S-011（REQ-011 房間）, S-012（REQ-012 教學）, S-013（REQ-013 UI）, S-014（REQ-014 帳號）, S-020a（REQ-020a 籌碼）, S-021（REQ-021 每日任務）；BDD場景詳細內容於STEP-15生成；S-ID已預先保留，確保追溯鏈完整 | REQ-011: IT-roomstate-001（斷線重連狀態同步）；其他 BDD STEP-15 回填 |
-| **O2（留存/社群）** | （補充指標，非O2 Must條件）排行榜週榜活躍玩家數≥500人[提案值，2026-05-15確認]（Launch+3M目標；**[提案值，待O6截止日2026-05-15 PM確認後正式化；確認前不作為正式驗收標準]**）| REQ-006（排行榜）— REQ-006為Could Have，其成功指標為補充指標（非O2 Must達成條件）；O2 Must達成條件僅依賴REQ-001~004, REQ-010~012, REQ-013, REQ-020a | UT/IT: IT-rank-001 | BDD S-006（STEP-15回填） |
-| **O2（社群參與）** | 聊天訊息日均發送量≥1,000則[提案值，2026-05-15確認]（Launch+3M目標；**[提案值，待O6截止日2026-05-15 PM確認後正式化；確認前不作為正式驗收標準]**）| REQ-007（聊天室） | UT/IT: IT-chat-001 | BDD S-007（STEP-15回填） |
+| **O2（留存/社群）** | （補充指標，非O2 Must條件）排行榜週榜活躍玩家數≥500人[提案值，2026-05-15確認]（Launch+3M目標；**[提案值，待PM於2026-05-15前確認後正式化；確認前不作為正式驗收標準]**）| REQ-006（排行榜）— REQ-006為Could Have，其成功指標為補充指標（非O2 Must達成條件）；O2 Must達成條件僅依賴REQ-001~004, REQ-010~012, REQ-013, REQ-020a | UT/IT: IT-rank-001 | BDD S-006（STEP-15回填） |
+| **O2（社群參與）** | 每房間每小時聊天訊息≥1,000則（提案值，2026-05-15前確認）（Launch+3M目標；**[提案值，待PM於2026-05-15前確認後正式化；確認前不作為正式驗收標準]**）| REQ-007（聊天室） | UT/IT: IT-chat-001 | BDD S-007（STEP-15回填） |
 | **O3** | 建立虛擬籌碼變現模式（依法律意見書 2026-05-15 決定）；付費率 ≥ 3%（**≤ 2027-05-21**） | REQ-020b（Should Have，IAP/廣告） | BDD S-020b（將於STEP-15 BDD文件生成後回填）| STEP-15 回填 |
 | **O合規** | 防沉迷合規；Cookie同意；個資保護 | REQ-015（防沉迷）, REQ-016（Cookie同意）, REQ-019（個資刪除）, REQ-014（帳號驗證） | BDD S-015（REQ-015 防沉迷）, S-016（REQ-016 Cookie）, S-019（REQ-019 個資刪除；另含IT-delete-001整合測試）；BDD場景詳細內容於STEP-15生成；S-ID已預先保留，確保追溯鏈完整 | STEP-15 回填 |
 
@@ -623,7 +623,7 @@ As a **Returning Player**, I want to optionally purchase more chips or watch ads
 
 **Acceptance Criteria：**
 
-- AC-1: 每日至少提供 3 個可完成任務（範例：完成 3 場對戰、連續登入 7 日、完成教學）；任務列表每日 00:00 UTC+8 重置；每項任務獎勵下限為500籌碼（確保500-999邊緣情況玩家可透過單一任務恢復進入青銅廳所需1,000籌碼資格）。注意：本AC完整版本待O6截止日2026-05-15 Game Designer完成任務清單配置後補入；在此之前，REQ-021 AC-1驗收暫緩，不作為Alpha（2026-06-21）阻斷條件；O6完成後需發布PRD v0.4-draft更新。**【F3 Alpha/GA截止門控聲明】** 本AC完整版待O6截止日2026-05-15補入；Alpha（2026-06-21）阻斷條件排除此AC；O6逾期未完成時，REQ-021自動降回Backlog（Should Have暫緩），並在PRD 下一版本更新（待O6確認後）中記錄。
+- AC-1: 每日至少提供 3 個可完成任務（範例：完成 3 場對戰、連續登入 7 日、完成教學）；任務列表每日 00:00 UTC+8 重置；每項任務獎勵下限為500籌碼（確保500-999邊緣情況玩家可透過單一任務恢復進入青銅廳所需1,000籌碼資格）。注意：本AC完整版本待O6截止日2026-05-15 Game Designer完成任務清單配置後補入；在此之前，REQ-021 AC-1驗收暫緩，不作為Alpha（2026-06-21）阻斷條件；O6完成後需發布PRD 下一版本更新（待O6確認後）。**【F3 Alpha/GA截止門控聲明】** 本AC完整版待O6截止日2026-05-15補入；Alpha（2026-06-21）阻斷條件排除此AC；O6逾期未完成時，REQ-021自動降回Backlog（Should Have暫緩），並在PRD 下一版本更新（待O6確認後）中記錄。
 - AC-2: 每項任務完成後發放 500–2,000 籌碼獎勵；獎勵即時到帳（Server push），Client 顯示動畫提示。
 - AC-3: 任務完成率量測：Launch+3M 時 DAU 每日任務完成率 ≥ 40%。量測規格：使用Firebase Analytics或內部Analytics平台；事件名稱：task_completed（屬性：task_id, player_id, date_utc8）；Pass定義：Launch+3M期間連續7日移動平均DAU任務完成率≥40%；分母=當日DAU（日首次登入唯一帳號數）。
 - AC-4: 500–999 籌碼邊緣情況：完成 1 個任務（最低獎勵 500 籌碼）後，玩家總籌碼 ≥ 1,000，可重新進入青銅廳。
@@ -660,7 +660,7 @@ As a **Returning Player**, I want to optionally purchase more chips or watch ads
 | NFR-16 | 效能：資料庫查詢延遲 | PostgreSQL查詢延遲；Redis操作延遲；連線池管理；Circuit Breaker策略：連線池耗盡後啟動30秒Circuit Breaker（返回HTTP 503 + Retry-After:30頭）；30秒後進入Half-Open：允許10%請求通過探測恢復；完全恢復條件：P95查詢延遲恢復至≤50ms持續60秒；若Circuit Breaker實作延至v1.x，在Decision Log中記載（含風險說明） | PostgreSQL P95查詢延遲 ≤ 50ms；Redis P95操作延遲 ≤ 5ms；連線池最大連線數：500 CCU下至少50個DB連線；連線池耗盡返回HTTP 503 + Retry-After:30頭 | APM監控（如Datadog / Grafana）；壓測下P95延遲驗證 | Must | Eng Lead + SRE |
 | NFR-17 | 安全：Session Token（來源：BRD §9合規安全要求 + BRD R10 KYC/個資外洩安全風險）| JWT 存取 Token 有效期 ≤ 1 小時；Refresh Token 有效期 ≤ 7 天；帳號封鎖後所有活躍 Token ≤ 1 分鐘失效（Server 端短效 Token 強制刷新）；簽名演算法：RS256 或 ES256（禁止 HS256）；測試：封號後 60 秒內嘗試已發 Token 操作返回 HTTP 401 | 封號後 Token 失效 ≤ 60 秒；Token 長度符合演算法規格 | 封號流程測試 + Token 驗證 | Must | Eng Lead |
 | NFR-18 | 可用性：DB Failover（來源：BRD NFR-13備份還原 + BRD NFR-03可用性SLA）| PostgreSQL 採主從熱備援（streaming replication）；自動 failover 觸發：主節點不可用 60 秒後；服務恢復目標 ≤ 5 分鐘（計入 NFR-03 SLA）；Redis 採 Sentinel 模式；季度 failover 演練，記錄實際恢復時間 | 服務恢復時間 ≤ 5 分鐘 | 季度 failover 演練（實際恢復測試通過）| Must | SRE |
-| NFR-19 | 安全：REST API Rate Limit（來源：BRD §9.4詐欺防制 + BRD R2外掛風險）| REST API端點Rate Limit：(1)認證端點（/auth/*）：每IP每分鐘≤30次；(2)/player/daily-chip及/tasks/{id}/complete：每帳號每日限1次（AC層面已定義，NFR層面確認）；(3)一般API端點：每用戶每分鐘≤120次（2次/秒）；(4)IP全局Rate Limit：每IP每秒≤100次請求；超限返回HTTP 429 | 各端點超限返回HTTP 429 | 壓測工具模擬超限請求；驗證返回429及各限制正確執行 | Must | Eng Lead |
+| NFR-19 | 安全：REST API Rate Limit（來源：BRD §9.4詐欺防制 + BRD R2外掛風險）| REST API端點Rate Limit：(1)認證端點（/auth/*）：每IP每分鐘≤30次；(2)/player/daily-chip及/tasks/{id}/complete：每帳號每日限1次（AC層面已定義，NFR層面確認）；(3)一般API端點：每用戶每分鐘≤60次；(4)IP全局Rate Limit：每IP每分鐘≤300次請求；超限返回HTTP 429 | 各端點超限返回HTTP 429 | 壓測工具模擬超限請求；驗證返回429及各限制正確執行 | Must | Eng Lead |
 
 ---
 
@@ -1141,7 +1141,7 @@ Web 首次載入：
 
 ---
 
-*PRD 文件結束。下一步：STEP-04 EDD（Engineering Design Document）。*
+*PRD 文件結束。下一步：STEP-07 EDD（Engineering Design Document）。*
 
 ---
 
