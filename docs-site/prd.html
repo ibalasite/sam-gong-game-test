@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PRD — 產品需求文件 | 三公線上遊戲</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">♠ 三公</div>
+    <div class="nav-sub">Sam Gong Online</div>
+    <h2>導覽</h2>
+    <a href="index.html">首頁</a>
+    <h2>規格文件</h2>
+    <a href="brd.html">BRD — 商業需求</a>
+    <a href="prd.html">PRD — 產品需求</a>
+    <a href="edd.html">EDD — 工程設計</a>
+    <h2>技術參考</h2>
+    <a href="arch.html">系統架構</a>
+    <a href="api.html">API 參考</a>
+    <a href="schema.html">Schema 設計</a>
+    <h2>品質保證</h2>
+    <a href="test-plan.html">測試計畫</a>
+    <h2>部署</h2>
+    <a href="deploy.html">本機部署指南</a>
+  </nav>
+  <main>
+    <h1>PRD — 產品需求文件</h1>
+    <div class="doc-meta">
+      <span class="badge">DOC-ID: PRD-SAM-GONG-20260421</span>
+      <span class="badge">v1.3-draft</span>
+      <span class="badge badge-green">DRAFT</span>
+    </div>
+    <p>三公遊戲產品需求文件，定義 User Stories、驗收條件及遊戲狀態機。</p>
+
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/PRD.md" target="_blank">在 GitHub 上查看完整文件 →</a>
+
+    <h2>產品願景</h2>
+    <div class="card card-gold">
+      <h3>一行宣言</h3>
+      <p>讓 2-6 人隨時隨地能公平地在線玩三公（Server-Authoritative，零作弊）。</p>
+    </div>
+
+    <h2>目標對齊（BRD → PRD）</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>BRD 目標</th><th>PRD 交付物</th><th>成功指標</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>O1: 可玩的三公線上遊戲</td>
+            <td>完整牌局流程（創房→押注→比牌→結算）</td>
+            <td>每局完成率 ≥ 95%</td>
+          </tr>
+          <tr>
+            <td>O2: 穩定 Beta 用戶留存</td>
+            <td>斷線重連（60s）+ 流暢動畫</td>
+            <td>7D 留存率 ≥ 20%（Beta）</td>
+          </tr>
+          <tr>
+            <td>O3: 技術架構可擴展</td>
+            <td>模組化牌型引擎，可複用至其他棋牌</td>
+            <td>牌型引擎模組可獨立測試且文件覆蓋率 ≥ 80%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>User Stories（摘要）</h2>
+
+    <h3>Epic 1: 房間管理</h3>
+    <div class="card">
+      <h3>US-001: 創建房間</h3>
+      <p><strong>As</strong> 一位玩家，<strong>I want to</strong> 創建一個三公遊戲房間並獲得房間碼，<strong>So that</strong> 朋友可以用房間碼加入。</p>
+      <ul>
+        <li>AC-001-1: 成功創建房間後收到 6 字元英數房間碼</li>
+        <li>AC-001-2: 創建者自動成為房主</li>
+        <li>AC-001-3: 房間碼排除易混淆字元（O/0/I/1）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>US-002: 加入房間</h3>
+      <p><strong>As</strong> 一位玩家，<strong>I want to</strong> 用房間碼加入已創建的房間，<strong>So that</strong> 和朋友一起玩遊戲。</p>
+      <ul>
+        <li>AC-002-1: 輸入有效房間碼後成功加入</li>
+        <li>AC-002-2: 房間已滿（6人）時顯示錯誤</li>
+        <li>AC-002-3: 無效房間碼顯示明確錯誤訊息</li>
+      </ul>
+    </div>
+
+    <h3>Epic 2: 遊戲流程</h3>
+    <div class="card">
+      <h3>US-005: 押注</h3>
+      <p><strong>As</strong> 一位閒家玩家，<strong>I want to</strong> 在看到公牌後決定押注金額，<strong>So that</strong> 根據策略決定賭注。</p>
+      <ul>
+        <li>AC-005-1: 押注金額必須在最小/最大限額內</li>
+        <li>AC-005-2: 超時（30s）自動棄牌</li>
+        <li>AC-005-3: 已押注玩家不可再次修改</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>US-008: 翻牌結算</h3>
+      <p><strong>As</strong> 所有玩家，<strong>I want to</strong> 看到所有人翻牌並顯示結算結果，<strong>So that</strong> 了解輸贏與籌碼變動。</p>
+      <ul>
+        <li>AC-008-1: Server 比對所有玩家與莊家點數</li>
+        <li>AC-008-2: 公牌（點數=10）勝所有非公牌</li>
+        <li>AC-008-3: 平局時比花色（黑桃 &gt; 紅心 &gt; 方塊 &gt; 梅花）</li>
+        <li>AC-008-4: 公牌平局按花色決定</li>
+      </ul>
+    </div>
+
+    <h2>遊戲狀態機</h2>
+    <div class="card">
+      <pre><code>lobby
+  ↓ start_game
+banker_selection
+  ↓ banker selected
+betting
+  ↓ all players bet / fold
+dealing
+  ↓ cards dealt
+reveal
+  ↓ cards revealed
+settling
+  ↓ settlement done
+round_end
+  ↓ next round / room close</code></pre>
+      <p>共 7 個狀態，所有轉換均由 Server 控制，非法轉換直接拒絕。</p>
+    </div>
+
+    <h2>非功能需求</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>需求 ID</th><th>類別</th><th>規格</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>REQ-011</td><td>效能</td><td>WebSocket 延遲 ≤ 200ms（p95）</td></tr>
+          <tr><td>REQ-012</td><td>可靠性</td><td>斷線重連支援 60 秒內重新加入</td></tr>
+          <tr><td>REQ-013</td><td>安全性</td><td>@filter decorator 確保牌面不提前洩漏</td></tr>
+          <tr><td>REQ-014</td><td>速率限制</td><td>每 Session 10 ops/sec</td></tr>
+          <tr><td>REQ-015</td><td>並發</td><td>支援 50 個並發房間</td></tr>
+          <tr><td>REQ-016</td><td>輸入驗證</td><td>所有 Client 訊息在 Server 端驗證</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <hr class="section-divider" />
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/PRD.md" target="_blank">在 GitHub 上查看完整 PRD 文件 →</a>
+  </main>
+  <script src="assets/nav.js"></script>
+</body>
+</html>

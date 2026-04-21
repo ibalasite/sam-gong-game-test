@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ARCH — 系統架構 | 三公線上遊戲</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">♠ 三公</div>
+    <div class="nav-sub">Sam Gong Online</div>
+    <h2>導覽</h2>
+    <a href="index.html">首頁</a>
+    <h2>規格文件</h2>
+    <a href="brd.html">BRD — 商業需求</a>
+    <a href="prd.html">PRD — 產品需求</a>
+    <a href="edd.html">EDD — 工程設計</a>
+    <h2>技術參考</h2>
+    <a href="arch.html">系統架構</a>
+    <a href="api.html">API 參考</a>
+    <a href="schema.html">Schema 設計</a>
+    <h2>品質保證</h2>
+    <a href="test-plan.html">測試計畫</a>
+    <h2>部署</h2>
+    <a href="deploy.html">本機部署指南</a>
+  </nav>
+  <main>
+    <h1>ARCH — 系統架構文件</h1>
+    <div class="doc-meta">
+      <span class="badge">DOC-ID: ARCH-SAM-GONG-20260421</span>
+      <span class="badge">v1.0</span>
+      <span class="badge badge-green">DRAFT</span>
+    </div>
+    <p>三公遊戲系統架構文件，描述 Client-Server 雙層架構、Colyseus Room 設計及部署拓撲。</p>
+
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/ARCH.md" target="_blank">在 GitHub 上查看完整文件 →</a>
+
+    <h2>1. 架構模式</h2>
+    <div class="card card-gold">
+      <h3>Server-Authoritative + Client-Rendering</h3>
+      <p>三公遊戲採用兩層架構：</p>
+      <ul>
+        <li><strong>Colyseus Server（唯一可信方）</strong>：所有牌局決策 100% 在 Server 執行。Client 無法偽造任何遊戲狀態。</li>
+        <li><strong>Cocos Creator Client（純 Rendering）</strong>：Client 只負責接收 Server 廣播的狀態差分（State Diff）並渲染畫面，不持有任何遊戲邏輯。</li>
+      </ul>
+    </div>
+
+    <h2>2. 架構圖（文字版）</h2>
+    <div class="card">
+      <pre><code>┌─────────────────────────────────────────────┐
+│         Cocos Creator Client                │
+│  GameManager ──► GameEventEmitter           │
+│  GamePlayController                         │
+│  CardComponent / PlayerSlotComponent        │
+│  BettingPanelComponent                      │
+└──────────────────┬──────────────────────────┘
+                   │ WebSocket (Colyseus Protocol)
+┌──────────────────▼──────────────────────────┐
+│         Colyseus Server (Node.js 20)        │
+│  SamGongRoom (Room Lifecycle + Routing)     │
+│  ├── State Machine (7 Phases)               │
+│  ├── Game Logic (deck/evaluator/settlement) │
+│  ├── SamGongState (@colyseus/schema)        │
+│  ├── RateLimiter (10 ops/sec/session)       │
+│  └── roomCode / validateAction             │
+│                   │                         │
+│  ┌────────────────▼──────────────────┐      │
+│  │ SQLite (better-sqlite3)           │      │
+│  │ 稽核日誌 / 牌局記錄               │      │
+│  └───────────────────────────────────┘      │
+└─────────────────────────────────────────────┘</code></pre>
+    </div>
+
+    <h2>3. 核心優勢</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>優勢</th><th>說明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>反作弊</td>
+            <td>未翻牌的牌面資料從未送達其他玩家的客戶端，無法透過 DevTools 竊取</td>
+          </tr>
+          <tr>
+            <td>單一狀態來源</td>
+            <td><code>SamGongState</code> Schema 是所有客戶端視圖的唯一來源</td>
+          </tr>
+          <tr>
+            <td>可測試性</td>
+            <td>Server 端的純函數 Game Logic 可獨立單元測試，不依賴 Client</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>4. 技術棧</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>層次</th><th>技術</th><th>版本</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Client 框架</td><td>Cocos Creator</td><td>4.x</td></tr>
+          <tr><td>Client 語言</td><td>TypeScript</td><td>5.x</td></tr>
+          <tr><td>Server 框架</td><td>Colyseus</td><td>0.15</td></tr>
+          <tr><td>Server 執行環境</td><td>Node.js</td><td>20 LTS</td></tr>
+          <tr><td>Server 語言</td><td>TypeScript</td><td>5.x</td></tr>
+          <tr><td>資料庫</td><td>SQLite（better-sqlite3）</td><td>9.x</td></tr>
+          <tr><td>測試框架</td><td>Jest</td><td>29.x</td></tr>
+          <tr><td>E2E 測試</td><td>Playwright</td><td>1.x</td></tr>
+          <tr><td>容器化</td><td>Docker + Compose</td><td>24.x</td></tr>
+          <tr><td>Reverse Proxy</td><td>Nginx</td><td>1.25</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>5. 部署拓撲（Docker Compose）</h2>
+    <div class="card">
+      <pre><code>services:
+  colyseus:
+    image: node:20-alpine
+    ports: ["2567:2567"]
+    command: npm start
+
+  nginx:
+    image: nginx:1.25-alpine
+    ports: ["80:80", "443:443"]
+    # 代理 /colyseus/ → localhost:2567
+
+volumes:
+  sqlite-data:   # 稽核日誌持久化</code></pre>
+    </div>
+
+    <h2>6. K8s 拓撲（生產環境）</h2>
+    <div class="card">
+      <pre><code>┌──────────────────────────────────────────┐
+│  Ingress (Nginx / LoadBalancer)          │
+│  /colyseus/ → Colyseus Service           │
+└──────────────┬───────────────────────────┘
+               │
+┌──────────────▼───────────────────────────┐
+│  Colyseus Deployment (replicas: 2)       │
+│  ├── Resource: 256Mi / 500m CPU          │
+│  └── Liveness / Readiness Probes        │
+└──────────────────────────────────────────┘</code></pre>
+    </div>
+
+    <hr class="section-divider" />
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/ARCH.md" target="_blank">在 GitHub 上查看完整 ARCH 文件 →</a>
+  </main>
+  <script src="assets/nav.js"></script>
+</body>
+</html>

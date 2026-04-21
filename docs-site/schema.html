@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Schema — Schema 設計 | 三公線上遊戲</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">♠ 三公</div>
+    <div class="nav-sub">Sam Gong Online</div>
+    <h2>導覽</h2>
+    <a href="index.html">首頁</a>
+    <h2>規格文件</h2>
+    <a href="brd.html">BRD — 商業需求</a>
+    <a href="prd.html">PRD — 產品需求</a>
+    <a href="edd.html">EDD — 工程設計</a>
+    <h2>技術參考</h2>
+    <a href="arch.html">系統架構</a>
+    <a href="api.html">API 參考</a>
+    <a href="schema.html">Schema 設計</a>
+    <h2>品質保證</h2>
+    <a href="test-plan.html">測試計畫</a>
+    <h2>部署</h2>
+    <a href="deploy.html">本機部署指南</a>
+  </nav>
+  <main>
+    <h1>Schema — Schema 設計文件</h1>
+    <div class="doc-meta">
+      <span class="badge">DOC-ID: SCHEMA-SAM-GONG-20260421</span>
+      <span class="badge">v1.0-draft</span>
+      <span class="badge badge-green">DRAFT</span>
+    </div>
+    <p>三公遊戲兩層 Schema 設計：Colyseus Runtime Schema（即時同步）和 SQLite Database Schema（稽核日誌）。</p>
+
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/SCHEMA.md" target="_blank">在 GitHub 上查看完整文件 →</a>
+
+    <h2>1. Schema 概覽</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>Schema 類型</th><th>用途</th><th>決策依據</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Colyseus Runtime Schema</td>
+            <td>記憶體內即時狀態，透過 WebSocket Differential Patch 同步</td>
+            <td>是（唯一狀態來源）</td>
+          </tr>
+          <tr>
+            <td>SQLite Database Schema</td>
+            <td>持久化稽核日誌，每局結束後寫入</td>
+            <td>否（僅記錄，不作決策）</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>2. Colyseus Runtime Schema</h2>
+
+    <h3>2.1 型別定義</h3>
+    <div class="card">
+      <pre><code>export type Suit = "spades" | "hearts" | "diamonds" | "clubs";
+export type Rank =
+  | "A" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+  | "10" | "J" | "Q" | "K";
+export type PlayerStatus =
+  | "waiting" | "deciding" | "called" | "folded" | "disconnected";
+export type RoomPhase =
+  | "lobby" | "banker_selection" | "betting" | "dealing"
+  | "reveal" | "settling" | "round_end";</code></pre>
+    </div>
+
+    <h3>2.2 Card Schema（含 @filter 反作弊）</h3>
+    <div class="card card-gold">
+      <pre><code>export class Card extends Schema {
+  @filter(function(this: Card, client: Client, value, root: SamGongState) {
+    const phase = root.phase;
+    const isRevealPhase = ["reveal", "settling", "round_end"].includes(phase);
+    return isRevealPhase || this.ownerId === client.sessionId;
+  })
+  @type("string") suit: Suit = "spades";
+
+  @filter(/* same filter logic */)
+  @type("string") rank: Rank = "A";
+
+  @type("string") ownerId: string = "";
+}</code></pre>
+      <p>在翻牌前（非 reveal/settling/round_end 階段），對手的 <code>suit</code> 和 <code>rank</code> 欄位不會傳送至 Client。</p>
+    </div>
+
+    <h3>2.3 PlayerState Schema</h3>
+    <div class="card">
+      <pre><code>export class PlayerState extends Schema {
+  @type("string") sessionId: string = "";
+  @type("string") name: string = "";
+  @type("number") chips: number = 1000;
+  @type("number") currentBet: number = 0;
+  @type("string") status: PlayerStatus = "waiting";
+  @type("boolean") isBanker: boolean = false;
+  @type([Card]) hand = new ArraySchema&lt;Card&gt;();
+  @type("number") handPoints: number = 0; // 僅在 reveal 後有效
+}</code></pre>
+    </div>
+
+    <h3>2.4 SamGongState（根 Schema）</h3>
+    <div class="card">
+      <pre><code>export class SamGongState extends Schema {
+  @type("string") phase: RoomPhase = "lobby";
+  @type("string") roomCode: string = "";
+  @type("string") hostSessionId: string = "";
+  @type("string") bankerSessionId: string = "";
+  @type("number") minBet: number = 10;
+  @type("number") maxBet: number = 1000;
+  @type("number") roundNumber: number = 0;
+  @type({ map: PlayerState }) players = new MapSchema&lt;PlayerState&gt;();
+}</code></pre>
+    </div>
+
+    <h2>3. SQLite Database Schema（稽核日誌）</h2>
+
+    <h3>3.1 表結構</h3>
+    <div class="card">
+      <pre><code>-- 牌局記錄表
+CREATE TABLE rounds (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_code   TEXT    NOT NULL,
+  round_num   INTEGER NOT NULL,
+  started_at  TEXT    NOT NULL,
+  ended_at    TEXT,
+  phase_log   TEXT,   -- JSON: 狀態轉換歷程
+  created_at  TEXT    DEFAULT (datetime('now'))
+);
+
+-- 結算記錄表
+CREATE TABLE settlements (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  round_id      INTEGER REFERENCES rounds(id),
+  session_id    TEXT    NOT NULL,
+  player_name   TEXT    NOT NULL,
+  is_banker     INTEGER NOT NULL,     -- 0/1
+  hand_cards    TEXT    NOT NULL,     -- JSON: [{suit,rank}]
+  hand_points   INTEGER NOT NULL,
+  bet_amount    INTEGER NOT NULL,
+  chips_delta   INTEGER NOT NULL,     -- 正=贏, 負=輸
+  result        TEXT    NOT NULL,     -- "win" | "lose" | "push"
+  created_at    TEXT    DEFAULT (datetime('now'))
+);</code></pre>
+    </div>
+
+    <h2>4. 設計原則</h2>
+    <div class="card">
+      <ul>
+        <li><strong>Schema 是唯一狀態來源</strong>：SQLite 僅記錄，從不讀取以做決策</li>
+        <li><strong>反作弊</strong>：<code>@filter</code> decorator 確保玩家牌面在翻牌前對其他人不可見</li>
+        <li><strong>Immutable Updates</strong>：每次狀態更新產生新物件，不修改現有狀態</li>
+        <li><strong>寫入後驗證</strong>：SQLite 寫入後讀回比對，確保資料一致性</li>
+      </ul>
+    </div>
+
+    <hr class="section-divider" />
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/SCHEMA.md" target="_blank">在 GitHub 上查看完整 Schema 文件 →</a>
+  </main>
+  <script src="assets/nav.js"></script>
+</body>
+</html>

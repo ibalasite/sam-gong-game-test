@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Deploy — 本機部署指南 | 三公線上遊戲</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">♠ 三公</div>
+    <div class="nav-sub">Sam Gong Online</div>
+    <h2>導覽</h2>
+    <a href="index.html">首頁</a>
+    <h2>規格文件</h2>
+    <a href="brd.html">BRD — 商業需求</a>
+    <a href="prd.html">PRD — 產品需求</a>
+    <a href="edd.html">EDD — 工程設計</a>
+    <h2>技術參考</h2>
+    <a href="arch.html">系統架構</a>
+    <a href="api.html">API 參考</a>
+    <a href="schema.html">Schema 設計</a>
+    <h2>品質保證</h2>
+    <a href="test-plan.html">測試計畫</a>
+    <h2>部署</h2>
+    <a href="deploy.html">本機部署指南</a>
+  </nav>
+  <main>
+    <h1>Deploy — 本機部署指南</h1>
+    <div class="doc-meta">
+      <span class="badge">三公線上遊戲</span>
+      <span class="badge badge-green">LOCAL</span>
+    </div>
+    <p>三公線上遊戲本機部署指南，提供直接執行和 Docker Compose 兩種方式。</p>
+
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/LOCAL_DEPLOY.md" target="_blank">在 GitHub 上查看完整文件 →</a>
+
+    <h2>前置需求</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>工具</th><th>版本</th><th>說明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Node.js</td><td>20.x</td><td>伺服器執行環境</td></tr>
+          <tr><td>npm</td><td>10.x</td><td>套件管理</td></tr>
+          <tr><td>Docker</td><td>24.x+</td><td>容器化部署</td></tr>
+          <tr><td>docker-compose</td><td>v2.x</td><td>本機多服務編排</td></tr>
+        </tbody>
+      </table>
+      <pre><code># 確認安裝版本
+node --version         # v20.x.x
+npm --version          # 10.x.x
+docker --version       # Docker version 24.x.x
+docker compose version # Docker Compose version v2.x.x</code></pre>
+    </div>
+
+    <h2>方式一：直接執行（最快速）</h2>
+    <div class="card">
+      <pre><code># 1. 進入 server 目錄
+cd server
+
+# 2. 安裝依賴
+npm install
+
+# 3. 建置 TypeScript
+npm run build
+
+# 4. 啟動伺服器
+npm start</code></pre>
+      <div class="alert">
+        伺服器啟動後監聽：<code>ws://localhost:2567</code>
+      </div>
+      <h3>開發模式（熱重載）</h3>
+      <pre><code>npm run dev</code></pre>
+    </div>
+
+    <h2>方式二：Docker Compose（推薦）</h2>
+    <div class="card">
+      <pre><code># 從專案根目錄執行
+docker compose up --build
+
+# 服務啟動後：
+# Colyseus Server: ws://localhost:2567
+# Nginx Proxy:     http://localhost:80</code></pre>
+      <h3>停止服務</h3>
+      <pre><code>docker compose down
+
+# 清除 volumes（含 SQLite 稽核日誌）
+docker compose down -v</code></pre>
+    </div>
+
+    <h2>連線測試</h2>
+    <div class="card">
+      <pre><code>// 測試 Colyseus 連線
+const Colyseus = require("colyseus.js");
+const client = new Colyseus.Client("ws://localhost:2567");
+
+client.joinOrCreate("sam_gong", { playerName: "TestPlayer" })
+  .then(room => {
+    console.log("Connected! Room ID:", room.id);
+    console.log("Room Code:", room.state.roomCode);
+  })
+  .catch(err => console.error("Connection failed:", err));</code></pre>
+    </div>
+
+    <h2>執行測試</h2>
+    <div class="card">
+      <pre><code># 單元測試
+cd server && npm test
+
+# 覆蓋率報告
+cd server && npm test -- --coverage
+
+# E2E 測試（需先啟動伺服器）
+npx playwright test
+
+# 查看測試結果
+npx playwright show-report</code></pre>
+    </div>
+
+    <h2>環境變數（選用）</h2>
+    <div class="card">
+      <pre><code># server/.env（本機開發）
+PORT=2567
+NODE_ENV=development
+SQLITE_DB_PATH=./data/samgong.db
+LOG_LEVEL=debug
+MAX_ROOMS=100</code></pre>
+    </div>
+
+    <h2>常見問題</h2>
+    <div class="card">
+      <h3>Port 2567 已被佔用</h3>
+      <pre><code># 查看佔用 Port 的程序
+lsof -i :2567
+kill -9 &lt;PID&gt;</code></pre>
+
+      <h3>TypeScript 編譯錯誤</h3>
+      <pre><code># 清除 build 目錄重新編譯
+rm -rf server/dist
+cd server && npm run build</code></pre>
+
+      <h3>Docker 映像建置失敗</h3>
+      <pre><code># 清除 Docker cache 重新建置
+docker compose build --no-cache
+docker compose up</code></pre>
+    </div>
+
+    <h2>K8s 部署（生產環境）</h2>
+    <div class="card">
+      <pre><code># 部署至 Kubernetes
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+kubectl apply -f k8s/ingress.yaml
+
+# 查看部署狀態
+kubectl -n sam-gong get pods
+kubectl -n sam-gong get services</code></pre>
+      <a class="link-btn" href="https://github.com/tobala/sam-gong-game/tree/main/k8s" target="_blank">查看 K8s 設定檔 →</a>
+    </div>
+
+    <hr class="section-divider" />
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/LOCAL_DEPLOY.md" target="_blank">在 GitHub 上查看完整部署指南 →</a>
+  </main>
+  <script src="assets/nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EDD — 工程設計文件 | 三公線上遊戲</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">♠ 三公</div>
+    <div class="nav-sub">Sam Gong Online</div>
+    <h2>導覽</h2>
+    <a href="index.html">首頁</a>
+    <h2>規格文件</h2>
+    <a href="brd.html">BRD — 商業需求</a>
+    <a href="prd.html">PRD — 產品需求</a>
+    <a href="edd.html">EDD — 工程設計</a>
+    <h2>技術參考</h2>
+    <a href="arch.html">系統架構</a>
+    <a href="api.html">API 參考</a>
+    <a href="schema.html">Schema 設計</a>
+    <h2>品質保證</h2>
+    <a href="test-plan.html">測試計畫</a>
+    <h2>部署</h2>
+    <a href="deploy.html">本機部署指南</a>
+  </nav>
+  <main>
+    <h1>EDD — 工程設計文件</h1>
+    <div class="doc-meta">
+      <span class="badge">DOC-ID: EDD-SAM-GONG-20260421</span>
+      <span class="badge">v1.0-draft</span>
+      <span class="badge badge-green">DRAFT</span>
+    </div>
+    <p>三公遊戲工程設計文件，定義 Server 架構、模組設計、狀態機及反作弊機制。</p>
+
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/EDD.md" target="_blank">在 GitHub 上查看完整文件 →</a>
+
+    <h2>1. System Overview</h2>
+
+    <h3>架構模式</h3>
+    <div class="card">
+      <ul>
+        <li><strong>模式</strong>: Server-Authoritative + Client-Rendering</li>
+        <li><strong>通訊</strong>: WebSocket（Colyseus Protocol）</li>
+        <li><strong>狀態同步</strong>: @colyseus/schema Differential State Sync</li>
+        <li><strong>牌局邏輯</strong>: 100% Server-side（Client 僅 Render）</li>
+      </ul>
+    </div>
+
+    <h3>高階架構（文字版）</h3>
+    <div class="card">
+      <pre><code>[Cocos Creator Client] ←→ WebSocket ←→ [Colyseus Server]
+                                              ↕
+                                       [SamGongRoom]
+                                              ↕
+                               [Game Logic Module（Pure Functions）]
+                                              ↕
+                                        [SQLite（稽核日誌）]</code></pre>
+    </div>
+
+    <h2>2. 設計原則</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>#</th><th>原則</th><th>說明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>Server-Authoritative</td><td>所有牌局決策均在 Server 執行，Client 無法偽造</td></tr>
+          <tr><td>2</td><td>Pure Functions</td><td>deck / evaluator / settlement 為純函數，無副作用，可獨立單元測試</td></tr>
+          <tr><td>3</td><td>Schema Filtering</td><td>反作弊核心，未翻牌的其他玩家牌面永遠不下發至客戶端</td></tr>
+          <tr><td>4</td><td>Immutable State</td><td>每次狀態更新產生新物件，不修改現有狀態</td></tr>
+          <tr><td>5</td><td>Fail Fast</td><td>非法狀態轉換直接拋出錯誤，拒絕處理</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>3. Server Architecture（Colyseus）</h2>
+
+    <h3>Room 設計</h3>
+    <div class="card">
+      <pre><code>// server/src/rooms/SamGongRoom.ts
+class SamGongRoom extends Room&lt;SamGongState&gt; {
+  onCreate(options: CreateRoomOptions): void
+  onJoin(client: Client, options: JoinRoomOptions): void
+  onLeave(client: Client, consented: boolean): Promise&lt;void&gt;
+  onDispose(): void
+
+  // Message Handlers
+  onMessage("start_game", handler)
+  onMessage("place_bet", handler)
+  onMessage("fold", handler)
+  onMessage("reveal", handler)
+}</code></pre>
+    </div>
+
+    <h3>Game Logic 模組</h3>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>模組</th><th>檔案</th><th>職責</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Deck</td><td><code>deck.ts</code></td><td>createDeck、shuffle、dealCards 純函數</td></tr>
+          <tr><td>Evaluator</td><td><code>evaluator.ts</code></td><td>calculatePoints（mod 10）、isGong、compareHands</td></tr>
+          <tr><td>Settlement</td><td><code>settlement.ts</code></td><td>calculateSettlement：每位閒家與莊家比較，計算籌碼變動</td></tr>
+          <tr><td>Banker</td><td><code>banker.ts</code></td><td>selectBanker（輪流或自願）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>4. 評分函數（核心邏輯）</h2>
+    <div class="card">
+      <pre><code>// evaluator.ts
+export function getCardPoint(rank: Rank): number {
+  if (rank === 'A') return 1;
+  if (['J', 'Q', 'K'].includes(rank)) return 10;
+  return parseInt(rank, 10);
+}
+
+export function calculatePoints(cards: Card[]): number {
+  const total = cards.reduce((sum, c) => sum + getCardPoint(c.rank), 0);
+  const mod = total % 10;
+  return mod === 0 ? 10 : mod; // 10 = 公牌
+}
+
+export function isGong(cards: Card[]): boolean {
+  return calculatePoints(cards) === 10;
+}</code></pre>
+    </div>
+
+    <h2>5. 反作弊：Schema Filtering</h2>
+    <div class="card card-gold">
+      <h3>@filter decorator 機制</h3>
+      <pre><code>// 反作弊核心：opponent cards filtered until reveal phase
+export class Card extends Schema {
+  @filter(function(this: Card, client: Client, value, root: SamGongState) {
+    const player = root.players.get(client.sessionId);
+    if (!player) return false;
+    // 翻牌前，只有自己的牌可見
+    return root.phase === "reveal" ||
+           root.phase === "settling" ||
+           root.phase === "round_end" ||
+           this.ownerId === client.sessionId;
+  })
+  @type("string") suit: Suit = "spades";
+
+  @filter(/* same logic */)
+  @type("string") rank: Rank = "A";
+}</code></pre>
+      <p>未翻牌時，其他玩家的 <code>suit</code> 和 <code>rank</code> 欄位不會包含在 State Diff 中，即使透過 DevTools 攔截也無法取得牌面資訊。</p>
+    </div>
+
+    <h2>6. Rate Limiter</h2>
+    <div class="card">
+      <pre><code>// 每個 session 每秒最多 10 次操作
+const rateLimiter = new Map&lt;string, number[]&gt;();
+
+function checkRateLimit(sessionId: string): boolean {
+  const now = Date.now();
+  const timestamps = rateLimiter.get(sessionId) || [];
+  const recent = timestamps.filter(t => now - t &lt; 1000);
+  if (recent.length &gt;= 10) return false; // 超過速率限制
+  recent.push(now);
+  rateLimiter.set(sessionId, recent);
+  return true;
+}</code></pre>
+    </div>
+
+    <hr class="section-divider" />
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/EDD.md" target="_blank">在 GitHub 上查看完整 EDD 文件 →</a>
+  </main>
+  <script src="assets/nav.js"></script>
+</body>
+</html>

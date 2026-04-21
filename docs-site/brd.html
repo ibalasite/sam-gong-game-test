@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BRD — 商業需求文件 | 三公線上遊戲</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">♠ 三公</div>
+    <div class="nav-sub">Sam Gong Online</div>
+    <h2>導覽</h2>
+    <a href="index.html">首頁</a>
+    <h2>規格文件</h2>
+    <a href="brd.html">BRD — 商業需求</a>
+    <a href="prd.html">PRD — 產品需求</a>
+    <a href="edd.html">EDD — 工程設計</a>
+    <h2>技術參考</h2>
+    <a href="arch.html">系統架構</a>
+    <a href="api.html">API 參考</a>
+    <a href="schema.html">Schema 設計</a>
+    <h2>品質保證</h2>
+    <a href="test-plan.html">測試計畫</a>
+    <h2>部署</h2>
+    <a href="deploy.html">本機部署指南</a>
+  </nav>
+  <main>
+    <h1>BRD — 商業需求文件</h1>
+    <div class="doc-meta">
+      <span class="badge">DOC-ID: BRD-SAM-GONG-GAME-20260421</span>
+      <span class="badge">v0.6-draft</span>
+      <span class="badge badge-green">UNDER_REVIEW</span>
+    </div>
+    <p>三公遊戲（Sam Gong Online）商業需求文件。本文件定義業務目標、利害關係人地圖、效益實現計畫及風險管理。</p>
+
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/BRD.md" target="_blank">在 GitHub 上查看完整文件 →</a>
+
+    <h2>文件版本歷史</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>版本</th><th>日期</th><th>變更摘要</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>v0.1-draft</code></td><td>2026-04-21</td><td>初稿，由 AI 自動生成</td></tr>
+          <tr><td><code>v0.2-draft</code></td><td>2026-04-21</td><td>Round 1 審查：RTM、North Star、Stakeholder Map、RACI</td></tr>
+          <tr><td><code>v0.3-draft</code></td><td>2026-04-21</td><td>Round 2-3：投資門檻 Go/No-Go、Data Governance、Vendor Risk</td></tr>
+          <tr><td><code>v0.4-draft</code></td><td>2026-04-21</td><td>Round 4：法律風險、留存率目標分層標示</td></tr>
+          <tr><td><code>v0.5-draft</code></td><td>2026-04-21</td><td>Round 5：章節編號修正、RTM O2 目標分層一致性</td></tr>
+          <tr><td><code>v0.6-draft</code></td><td>2026-04-21</td><td>Round 6：留存率目標補充分層（Beta ≥20% / GA ≥30%）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>競品分析</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>競品 / 工具</th><th>核心定位</th><th>我們的差異</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>node-poker-stack</td>
+            <td>Node.js 撲克遊戲伺服器 + HTML5 前端</td>
+            <td>採用 Colyseus 高階狀態同步 + Cocos 豐富 UI</td>
+          </tr>
+          <tr>
+            <td>distributed-texasholdem</td>
+            <td>Socket.IO + Express 德州撲克</td>
+            <td>Server-Authoritative 比牌，牌面不提前洩漏</td>
+          </tr>
+          <tr>
+            <td>colyseus/cocos-demo-tictactoe</td>
+            <td>Cocos Creator + Colyseus 官方 Demo</td>
+            <td>以此為基礎架構，擴充三公牌局 + 下注狀態機</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>技術建議</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>層次</th><th>建議方案</th><th>選擇理由</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Client 框架</td><td>Cocos Creator 4.x + TypeScript</td><td>使用者指定；官方有 Colyseus SDK 整合文件</td></tr>
+          <tr><td>Server 框架</td><td>Colyseus 0.15+ + Node.js</td><td>MIT 授權；天然 authoritative 設計；官方有 Cocos SDK</td></tr>
+          <tr><td>Server 語言</td><td>TypeScript（ts-node / esbuild 打包）</td><td>與 Client 統一語言，共享型別定義</td></tr>
+          <tr><td>資料庫</td><td>SQLite（better-sqlite3）</td><td>嵌入式、零配置、足夠支撐 Pilot 階段</td></tr>
+          <tr><td>測試</td><td>Jest + Playwright</td><td>業界標準；Colyseus 官方有 Test SDK</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>業務目標（North Star）</h2>
+    <div class="card card-gold">
+      <h3>O1 — 可玩的三公線上遊戲</h3>
+      <p>交付一個 2-6 人可即時對戰的三公線上遊戲，Server-Authoritative 確保零作弊。</p>
+      <ul>
+        <li>每局完成率 ≥ 95%</li>
+        <li>延遲 ≤ 200ms（p95）</li>
+      </ul>
+      <h3 style="margin-top: 1rem;">O2 — 穩定 Beta 用戶留存</h3>
+      <p>透過斷線重連與流暢動畫提升留存率。</p>
+      <ul>
+        <li>Beta：7D 留存率 ≥ 20%</li>
+        <li>GA：7D 留存率 ≥ 30%</li>
+      </ul>
+      <h3 style="margin-top: 1rem;">O3 — 可擴展技術架構</h3>
+      <p>模組化牌型引擎，可複用至其他棋牌遊戲。</p>
+      <ul>
+        <li>牌型引擎模組可獨立測試</li>
+        <li>文件覆蓋率 ≥ 80%</li>
+      </ul>
+    </div>
+
+    <h2>投資 Go/No-Go 門檻</h2>
+    <div class="card">
+      <div class="alert">
+        <strong>Go 條件</strong>：完成率 ≥ 95%、Beta 留存 ≥ 20%、無重大安全漏洞
+      </div>
+      <div class="alert" style="border-left-color: #ef5350; background: rgba(239,83,80,0.05);">
+        <strong>No-Go 條件</strong>：完成率 &lt; 90%、任何作弊漏洞、或監管合規問題未解決
+      </div>
+    </div>
+
+    <hr class="section-divider" />
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/BRD.md" target="_blank">在 GitHub 上查看完整 BRD 文件 →</a>
+  </main>
+  <script src="assets/nav.js"></script>
+</body>
+</html>

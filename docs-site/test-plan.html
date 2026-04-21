@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Test Plan — 測試計畫 | 三公線上遊戲</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">♠ 三公</div>
+    <div class="nav-sub">Sam Gong Online</div>
+    <h2>導覽</h2>
+    <a href="index.html">首頁</a>
+    <h2>規格文件</h2>
+    <a href="brd.html">BRD — 商業需求</a>
+    <a href="prd.html">PRD — 產品需求</a>
+    <a href="edd.html">EDD — 工程設計</a>
+    <h2>技術參考</h2>
+    <a href="arch.html">系統架構</a>
+    <a href="api.html">API 參考</a>
+    <a href="schema.html">Schema 設計</a>
+    <h2>品質保證</h2>
+    <a href="test-plan.html">測試計畫</a>
+    <h2>部署</h2>
+    <a href="deploy.html">本機部署指南</a>
+  </nav>
+  <main>
+    <h1>Test Plan — 測試計畫</h1>
+    <div class="doc-meta">
+      <span class="badge">DOC-ID: TEST-SAM-GONG-20260421</span>
+      <span class="badge">v1.0</span>
+      <span class="badge badge-green">DRAFT</span>
+    </div>
+    <p>三公遊戲測試計畫，涵蓋 Unit / Integration / E2E / Performance 四個測試層次。</p>
+
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/TEST_PLAN.md" target="_blank">在 GitHub 上查看完整文件 →</a>
+
+    <h2>1. 測試策略概覽</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>測試層</th><th>框架</th><th>覆蓋目標</th><th>執行環境</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Unit（Server Game Logic）</td><td>Jest</td><td>100% branches on game logic</td><td>CI (Node.js)</td></tr>
+          <tr><td>Unit（Client Components）</td><td>Jest + Cocos Mock</td><td>Key components</td><td>CI</td></tr>
+          <tr><td>Integration（Colyseus Room）</td><td>Jest + Colyseus Test SDK</td><td>Room lifecycle + message flow</td><td>CI</td></tr>
+          <tr><td>E2E（Full Game Flow）</td><td>Playwright</td><td>Critical user flows</td><td>CI (headless Chrome)</td></tr>
+          <tr><td>Performance</td><td>k6</td><td>50 concurrent rooms</td><td>Manual/staging</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>2. Unit Tests — Game Logic (Server)</h2>
+
+    <h3>2.1 deck.ts Tests</h3>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>Test ID</th><th>描述</th><th>預期結果</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>UT-DECK-001</code></td><td>createDeck returns 52 cards</td><td><code>deck.length === 52</code></td></tr>
+          <tr><td><code>UT-DECK-002</code></td><td>All suits present</td><td>4 suits × 13 ranks</td></tr>
+          <tr><td><code>UT-DECK-003</code></td><td>"10" rank is present</td><td>deck includes rank="10"</td></tr>
+          <tr><td><code>UT-DECK-004</code></td><td>shuffle returns 52 cards</td><td>shuffled.length === 52</td></tr>
+          <tr><td><code>UT-DECK-005</code></td><td>shuffle is immutable</td><td>original array unchanged</td></tr>
+          <tr><td><code>UT-DECK-006</code></td><td>shuffle produces different order</td><td>not always same order (statistical)</td></tr>
+          <tr><td><code>UT-DECK-007</code></td><td>dealCards distributes correctly</td><td>52 deck, 6 players: each gets 3, 34 remain</td></tr>
+          <tr><td><code>UT-DECK-008</code></td><td>dealCards is deterministic</td><td>same deck → same distribution</td></tr>
+          <tr><td><code>UT-DECK-009</code></td><td>All 13 ranks present per suit</td><td>A,2-9,10,J,Q,K × 4 suits</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>2.2 evaluator.ts Tests</h3>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>Test ID</th><th>輸入</th><th>預期</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>UT-EVAL-001</code></td><td>[A, A, A]</td><td>3（1+1+1）</td></tr>
+          <tr><td><code>UT-EVAL-002</code></td><td>[J, Q, K]</td><td>10（公牌：30 mod 10 = 0 → 10）</td></tr>
+          <tr><td><code>UT-EVAL-003</code></td><td>[7, 8, 9]</td><td>4（24 mod 10）</td></tr>
+          <tr><td><code>UT-EVAL-004</code></td><td>[10, 10, 10]</td><td>10（公牌：30 mod 10 = 0 → 10）</td></tr>
+          <tr><td><code>UT-EVAL-005</code></td><td>[1, 2, 3]</td><td>6</td></tr>
+          <tr><td><code>UT-EVAL-010</code></td><td>[J,Q,K] vs [9,9,9]</td><td>公牌勝（10 &gt; 7）</td></tr>
+          <tr><td><code>UT-EVAL-011</code></td><td>[J,Q,K]♠ vs [J,Q,K]♥</td><td>黑桃勝（花色決定）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>3. Integration Tests — Colyseus Room</h2>
+    <div class="card">
+      <pre><code>// 使用 Colyseus Test SDK
+import { ColyseusTestServer, boot } from "@colyseus/testing";
+
+describe("SamGongRoom", () => {
+  let server: ColyseusTestServer;
+
+  beforeAll(async () => {
+    server = await boot(app);
+  });
+
+  it("IT-ROOM-001: 2 players can join and start game", async () => {
+    const room = await server.createRoom("sam_gong", { minBet: 10 });
+    const client1 = await server.connectTo(room);
+    const client2 = await server.connectTo(room);
+
+    await client1.send("start_game", {});
+    await room.waitForMessage("game_started");
+
+    expect(room.state.phase).toBe("banker_selection");
+  });
+});</code></pre>
+    </div>
+
+    <h2>4. E2E Tests — Playwright</h2>
+    <div class="card">
+      <pre><code>// playwright/specs/full-game.spec.ts
+test("E2E-001: 完整遊戲流程（2 玩家）", async ({ browser }) => {
+  const ctx1 = await browser.newContext();
+  const ctx2 = await browser.newContext();
+  const page1 = await ctx1.newPage();
+  const page2 = await ctx2.newPage();
+
+  await page1.goto("http://localhost:8080");
+  // 創建房間
+  await page1.click("[data-testid='create-room']");
+  const roomCode = await page1.locator("[data-testid='room-code']").textContent();
+
+  // 加入房間
+  await page2.goto("http://localhost:8080");
+  await page2.fill("[data-testid='room-code-input']", roomCode!);
+  await page2.click("[data-testid='join-room']");
+
+  // 開始遊戲
+  await page1.click("[data-testid='start-game']");
+  await expect(page1.locator("[data-testid='phase']")).toHaveText("betting");
+});</code></pre>
+    </div>
+
+    <h2>5. Performance Tests — k6</h2>
+    <div class="card">
+      <pre><code>// k6/scenarios/concurrent-rooms.js
+import ws from 'k6/ws';
+
+export const options = {
+  scenarios: {
+    concurrent_rooms: {
+      executor: 'constant-vus',
+      vus: 100,   // 50 rooms × 2 players
+      duration: '5m',
+    }
+  },
+  thresholds: {
+    ws_session_duration: ['p95 &lt; 200'],  // 200ms p95
+  }
+};</code></pre>
+      <table>
+        <thead>
+          <tr><th>指標</th><th>目標</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>WebSocket 延遲（p95）</td><td>≤ 200ms</td></tr>
+          <tr><td>並發房間數</td><td>50 rooms 穩定運行</td></tr>
+          <tr><td>每局完成率</td><td>≥ 95%</td></tr>
+          <tr><td>錯誤率</td><td>&lt; 1%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>6. 測試執行命令</h2>
+    <div class="card">
+      <pre><code># 單元測試
+cd server && npm test
+
+# 覆蓋率報告
+cd server && npm test -- --coverage
+
+# 集成測試
+cd server && npm run test:integration
+
+# E2E 測試
+npx playwright test
+
+# 效能測試
+k6 run k6/scenarios/concurrent-rooms.js</code></pre>
+    </div>
+
+    <hr class="section-divider" />
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/TEST_PLAN.md" target="_blank">在 GitHub 上查看完整測試計畫 →</a>
+  </main>
+  <script src="assets/nav.js"></script>
+</body>
+</html>

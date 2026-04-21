@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>三公線上遊戲 — 技術文件</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">♠ 三公</div>
+    <div class="nav-sub">Sam Gong Online</div>
+    <h2>導覽</h2>
+    <a href="index.html">首頁</a>
+    <h2>規格文件</h2>
+    <a href="brd.html">BRD — 商業需求</a>
+    <a href="prd.html">PRD — 產品需求</a>
+    <a href="edd.html">EDD — 工程設計</a>
+    <h2>技術參考</h2>
+    <a href="arch.html">系統架構</a>
+    <a href="api.html">API 參考</a>
+    <a href="schema.html">Schema 設計</a>
+    <h2>品質保證</h2>
+    <a href="test-plan.html">測試計畫</a>
+    <h2>部署</h2>
+    <a href="deploy.html">本機部署指南</a>
+  </nav>
+  <main>
+    <section class="hero">
+      <div class="hero-title">三公線上遊戲</div>
+      <div class="hero-subtitle">技術文件 — Sam Gong Online</div>
+      <div style="margin-top: 1rem;">
+        <span class="badge">TypeScript</span>
+        <span class="badge">Colyseus 0.15</span>
+        <span class="badge">Cocos Creator</span>
+        <span class="badge">Server-Authoritative</span>
+        <span class="badge badge-green">GitHub Pages</span>
+      </div>
+    </section>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-value">31</span>
+        <div class="stat-label">STEP 自動化流水線</div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value">40+</span>
+        <div class="stat-label">單元測試用例</div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value">6</span>
+        <div class="stat-label">最大玩家人數</div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value">7</span>
+        <div class="stat-label">遊戲狀態機階段</div>
+      </div>
+    </div>
+
+    <div class="rule-card card-gold">
+      <h3>♠ 三公規則說明</h3>
+      <p>三公（Sam Gong）是一種東南亞傳統撲克牌比大小遊戲。每位玩家持 3 張牌，將牌面數字相加後取個位數，以點數大者獲勝。</p>
+      <ul>
+        <li>A = 1 點；2–9 = 面值；10 / J / Q / K = 10 點</li>
+        <li>三張牌加總後<strong>取個位數</strong>（mod 10）為實際點數</li>
+        <li><span class="gong-highlight">公牌</span>：三張牌加總個位數為 <strong>0</strong>（即整十）為最大，例如 J + Q + K = 30 → 公牌</li>
+        <li>點數相同時比花色：黑桃 &gt; 紅心 &gt; 方塊 &gt; 梅花</li>
+        <li>莊家（Banker）與所有閒家（Player）單獨比較，勝者通吃</li>
+      </ul>
+    </div>
+
+    <h2>文件索引</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>文件</th>
+            <th>版本</th>
+            <th>說明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="brd.html" style="color: var(--accent);">BRD</a></td>
+            <td><code>v0.6-draft</code></td>
+            <td>商業需求文件：目標、利害關係人、效益實現</td>
+          </tr>
+          <tr>
+            <td><a href="prd.html" style="color: var(--accent);">PRD</a></td>
+            <td><code>v1.3-draft</code></td>
+            <td>產品需求：User Stories、驗收條件、狀態機</td>
+          </tr>
+          <tr>
+            <td><a href="edd.html" style="color: var(--accent);">EDD</a></td>
+            <td><code>v1.0-draft</code></td>
+            <td>工程設計：Server 架構、模組設計、反作弊</td>
+          </tr>
+          <tr>
+            <td><a href="arch.html" style="color: var(--accent);">ARCH</a></td>
+            <td><code>v1.0</code></td>
+            <td>系統架構圖：Colyseus Room、Schema Filtering</td>
+          </tr>
+          <tr>
+            <td><a href="api.html" style="color: var(--accent);">API</a></td>
+            <td><code>v1.0-draft</code></td>
+            <td>WebSocket API：訊息類型、Payload 格式</td>
+          </tr>
+          <tr>
+            <td><a href="schema.html" style="color: var(--accent);">Schema</a></td>
+            <td><code>v1.0-draft</code></td>
+            <td>Schema 設計：Colyseus Runtime + SQLite</td>
+          </tr>
+          <tr>
+            <td><a href="test-plan.html" style="color: var(--accent);">Test Plan</a></td>
+            <td><code>v1.0</code></td>
+            <td>測試計畫：Unit / Integration / E2E / Performance</td>
+          </tr>
+          <tr>
+            <td><a href="deploy.html" style="color: var(--accent);">Deploy</a></td>
+            <td>—</td>
+            <td>本機部署指南：直接執行 / Docker Compose</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>技術架構概覽</h2>
+    <div class="card">
+      <h3>Server-Authoritative 設計</h3>
+      <p>所有牌局決策（洗牌、發牌、判勝負、結算）均在 Colyseus Server 執行，Client 僅負責渲染。</p>
+      <pre><code>[Cocos Creator Client] ←→ WebSocket ←→ [Colyseus Server]
+                                              ↕
+                                       [SamGongRoom]
+                                              ↕
+                               [Game Logic（Pure Functions）]
+                                         deck / evaluator / settlement</code></pre>
+      <h3>反作弊核心</h3>
+      <p>使用 <code>@filter</code> decorator 確保未翻牌的牌面資料永遠不傳送至其他玩家的客戶端。</p>
+    </div>
+
+    <h2>快速入門</h2>
+    <div class="card">
+      <pre><code># 啟動伺服器
+cd server && npm install && npm run dev
+
+# 開啟瀏覽器（Cocos Preview）
+# 連線至 ws://localhost:2567
+
+# 執行單元測試
+cd server && npm test</code></pre>
+      <a class="link-btn" href="deploy.html">查看完整部署指南 →</a>
+    </div>
+  </main>
+  <script src="assets/nav.js"></script>
+</body>
+</html>

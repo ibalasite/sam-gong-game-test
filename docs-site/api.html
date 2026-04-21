@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API — WebSocket API 參考 | 三公線上遊戲</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">♠ 三公</div>
+    <div class="nav-sub">Sam Gong Online</div>
+    <h2>導覽</h2>
+    <a href="index.html">首頁</a>
+    <h2>規格文件</h2>
+    <a href="brd.html">BRD — 商業需求</a>
+    <a href="prd.html">PRD — 產品需求</a>
+    <a href="edd.html">EDD — 工程設計</a>
+    <h2>技術參考</h2>
+    <a href="arch.html">系統架構</a>
+    <a href="api.html">API 參考</a>
+    <a href="schema.html">Schema 設計</a>
+    <h2>品質保證</h2>
+    <a href="test-plan.html">測試計畫</a>
+    <h2>部署</h2>
+    <a href="deploy.html">本機部署指南</a>
+  </nav>
+  <main>
+    <h1>API — WebSocket API 參考</h1>
+    <div class="doc-meta">
+      <span class="badge">DOC-ID: API-SAM-GONG-20260421</span>
+      <span class="badge">v1.0-draft</span>
+      <span class="badge badge-green">DRAFT</span>
+    </div>
+    <p>三公遊戲 WebSocket API 文件，涵蓋 Room 生命週期、訊息類型及 Payload 格式。</p>
+
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/API.md" target="_blank">在 GitHub 上查看完整文件 →</a>
+
+    <h2>1. 協議概覽</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>項目</th><th>說明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>通訊方式</td><td>WebSocket via Colyseus Protocol (0.15)</td></tr>
+          <tr><td>狀態同步</td><td><code>@colyseus/schema</code> Differential State Sync（自動增量同步）</td></tr>
+          <tr><td>Client → Server</td><td><code>room.send(type, payload)</code></td></tr>
+          <tr><td>Server → Client（廣播）</td><td><code>room.broadcast(type, payload)</code></td></tr>
+          <tr><td>Server → Client（直接）</td><td><code>client.send(type, payload)</code>（單一目標）</td></tr>
+          <tr><td>反作弊</td><td><code>@filter</code> decorator：翻牌前對手牌面不包含在 State Patch 中</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>2. 連線設定</h2>
+    <div class="card">
+      <pre><code>WebSocket URL:  ws://{server}/colyseus/
+Room Name:      sam_gong
+Colyseus Client: new Colyseus.Client("ws://server/colyseus/")
+
+// 本機開發（直連）
+const client = new Colyseus.Client("ws://localhost:2567");</code></pre>
+      <div class="alert">
+        Nginx 代理 <code>/colyseus/</code> 至 <code>localhost:2567</code>。本機開發時直接連 <code>ws://localhost:2567</code>。
+      </div>
+    </div>
+
+    <h2>3. Room 生命週期 API</h2>
+
+    <h3>3.1 創建房間</h3>
+    <div class="card">
+      <pre><code>// Client
+const client = new Colyseus.Client("ws://localhost:2567");
+const room = await client.create("sam_gong", {
+  playerName: "Alice",
+  minBet: 10,
+  maxBet: 1000,
+  maxPlayers: 6
+});
+
+// Response: room.id = "A3KZ7M" (6字元房間碼)</code></pre>
+      <table>
+        <thead>
+          <tr><th>欄位</th><th>類型</th><th>說明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>playerName</code></td><td>string</td><td>顯示名稱（必填）</td></tr>
+          <tr><td><code>minBet</code></td><td>number</td><td>最小押注（預設 10）</td></tr>
+          <tr><td><code>maxBet</code></td><td>number</td><td>最大押注（預設 1000）</td></tr>
+          <tr><td><code>maxPlayers</code></td><td>number</td><td>最大人數 2-6（預設 6）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>3.2 加入房間</h3>
+    <div class="card">
+      <pre><code>// Client
+const room = await client.joinById("A3KZ7M", {
+  playerName: "Bob"
+});
+
+// 錯誤情境
+// 房間已滿: Error("Room is full")
+// 無效房間碼: Error("Room not found")</code></pre>
+    </div>
+
+    <h2>4. Client → Server 訊息</h2>
+
+    <h3>4.1 start_game</h3>
+    <div class="card">
+      <pre><code>// 僅房主可發送，至少 2 人才可開始
+room.send("start_game", {});</code></pre>
+    </div>
+
+    <h3>4.2 place_bet</h3>
+    <div class="card">
+      <pre><code>room.send("place_bet", { amount: 100 });
+// amount: 必須在 minBet ~ maxBet 之間
+// 狀態: 僅在 "betting" 階段有效
+// 超時: 30秒未行動 → 自動折疊</code></pre>
+    </div>
+
+    <h3>4.3 fold</h3>
+    <div class="card">
+      <pre><code>room.send("fold", {});
+// 棄牌：押注轉讓給莊家
+// 狀態: 僅在 "betting" 階段有效</code></pre>
+    </div>
+
+    <h3>4.4 reveal（Server 自動觸發）</h3>
+    <div class="card">
+      <pre><code>// 所有玩家押注完畢後，Server 自動廣播翻牌指令
+// Client 不需手動發送</code></pre>
+    </div>
+
+    <h2>5. Server → Client 事件</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>事件類型</th><th>觸發時機</th><th>Payload</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>game_started</code></td><td>遊戲開始時</td><td><code>{ phase: "banker_selection" }</code></td></tr>
+          <tr><td><code>betting_started</code></td><td>進入押注階段</td><td><code>{ timeLimit: 30 }</code></td></tr>
+          <tr><td><code>cards_revealed</code></td><td>翻牌時</td><td><code>{ results: [...] }</code></td></tr>
+          <tr><td><code>settlement_done</code></td><td>結算完成</td><td><code>{ changes: { sessionId: delta } }</code></td></tr>
+          <tr><td><code>round_ended</code></td><td>每局結束</td><td><code>{ nextBanker: sessionId }</code></td></tr>
+          <tr><td><code>error</code></td><td>操作失敗</td><td><code>{ code: string, message: string }</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>6. 錯誤碼</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>錯誤碼</th><th>說明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>INVALID_PHASE</code></td><td>在錯誤遊戲階段發送訊息</td></tr>
+          <tr><td><code>INVALID_BET</code></td><td>押注金額超出範圍</td></tr>
+          <tr><td><code>NOT_HOST</code></td><td>非房主嘗試開始遊戲</td></tr>
+          <tr><td><code>RATE_LIMITED</code></td><td>超過速率限制（10 ops/sec）</td></tr>
+          <tr><td><code>ALREADY_BET</code></td><td>已押注，不可再次行動</td></tr>
+          <tr><td><code>ROOM_FULL</code></td><td>房間已達人數上限</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <hr class="section-divider" />
+    <a class="link-btn" href="https://github.com/tobala/sam-gong-game/blob/main/docs/API.md" target="_blank">在 GitHub 上查看完整 API 文件 →</a>
+  </main>
+  <script src="assets/nav.js"></script>
+</body>
+</html>
