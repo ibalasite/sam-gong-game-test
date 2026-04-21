@@ -1,0 +1,50 @@
+version: "3.9"
+
+services:
+  sam-gong-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "2567:2567"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=${PORT:-2567}
+      - SQLITE_DB_PATH=${SQLITE_DB_PATH:-/data/sam-gong.db}
+      - MAX_ROOMS=${MAX_ROOMS:-100}
+      - DATABASE_URL=${DATABASE_URL:-}
+    env_file:
+      - .env
+    volumes:
+      - sqlite-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2567/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-samgong}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-samgong_dev}
+      - POSTGRES_DB=${POSTGRES_DB:-samgong}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-samgong}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  sqlite-data:
+  postgres-data:
