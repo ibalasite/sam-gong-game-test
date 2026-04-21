@@ -232,7 +232,7 @@ export class GameLobbyController extends Component {
 | `roundNumberLabel` | 第 N 局 |
 | `phaseStatusLabel` | 當前遊戲階段文字 |
 
-**底部操作區元件（`BettingPanel.prefab`）:**
+**底部操作區元件（`BettingPanel.prefab`）— 閒家視圖（非莊家）:**
 
 | 元件 | 說明 |
 |------|------|
@@ -240,6 +240,40 @@ export class GameLobbyController extends Component {
 | `foldBtn` | 棄牌按鈕 |
 | `actionStatusLabel` | 「等待其他玩家」/ 「輪到你決定」 |
 | `insufficientChipsLabel` | 籌碼不足提示（AC-013-1） |
+
+**底部操作區元件（`BettingPanel.prefab`）— 莊家視圖（REQ-006）:**
+
+當 `isBanker === true` 且 `roomPhase === 'betting'` 時，BettingPanel 切換為莊家底注設定視圖：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  設定本局底注 Set Bet Amount                                  │
+│                                                             │
+│   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+│   │  10 ●   │  │  20 ●   │  │  50 ●   │  │ 100 ●   │  │  ← 4 個固定選項
+│   └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
+│                                                             │
+│                  [確認底注 Confirm]                          │  ← 選定後啟用
+└─────────────────────────────────────────────────────────────┘
+```
+
+| 元件 | 說明 |
+|------|------|
+| `betOptionBtns` | Button 陣列（10/20/50/100 四個選項），選中高亮（金色邊框） |
+| `confirmBetBtn` | 確認底注按鈕；未選擇選項時 disabled |
+| `selectedAmountLabel` | 顯示當前選中金額（選中後更新） |
+
+**BettingPanelComponent.ts 方法簽名（補充莊家/閒家視圖切換）:**
+
+```typescript
+export class BettingPanelComponent extends Component {
+  showBankerView(): void;            // 切換至莊家底注設定視圖（4 選項 + 確認）
+  showPlayerView(): void;            // 切換至閒家跟注/棄牌視圖
+  showWaitingView(): void;           // 非當前玩家/等待狀態（按鈕全 disabled）
+  onSelectBetOption(amount: number): void; // 選擇底注金額，高亮選中按鈕
+  onConfirmBet(): void;              // 送出 set_bet_amount 訊息（AC-006-1）
+}
+```
 
 **Scripts:**
 
@@ -289,6 +323,8 @@ export class GameLobbyController extends Component {
 | 4 人 | 上方1 + 左1 + 右1 + 下方1（自己） |
 | 5 人 | 上方1 + 左2 + 右1 + 下方1（自己） |
 | 6 人 | 上方1 + 左2 + 右2 + 下方1（自己） |
+
+> **備注（6 人佈局對應說明）**: 6 人佈局中右側 2 格分配為「右上（P4 區）」+「右下（P1 區）」，與 Section 3.3 GamePlay 主場景示意圖中 P4（右上）/ P1（右下，含莊家）的位置一致。`PlayerLayoutManager.ts` 中的 position 常數以此順序定義。
 
 ---
 
@@ -370,9 +406,49 @@ async dealCardToPlayer(cardNode: Node, targetPos: Vec3) {
 
 ---
 
-### 3.7 結算 Overlay（SettlementOverlay）
+### 3.7 莊家選擇過渡畫面（BANKER_SELECTION Phase）
+
+**觸發時機**: `roomPhase === 'banker_selection'`（僅第一局 LOBBY → BANKER_SELECTION 時）
+
+**表現方式**: GamePlay 場景中央顯示一個短暫 Overlay，動畫結束後自動消失切換至 BETTING 階段。
+
+```
+┌────────────────────────────────────────┐
+│                                        │
+│         🎲 正在選擇莊家...              │  ← 主文字（金色，Bold）
+│                                        │
+│    ████░░░░░░░░░░░░░░░░░░░░░░░░░░    │  ← 進度條動畫（0.5s→全滿）
+│                                        │
+│         [ 玩家1 ] ← 莊家！             │  ← 完成後顯示莊家名稱（1s）
+│                                        │
+└────────────────────────────────────────┘
+```
+
+**流程:**
+1. `roomPhase` 變為 `banker_selection` → 顯示 BankerSelectionOverlay（Alpha 淡入 0.3s）
+2. 播放進度條動畫（1.0s）
+3. Server 狀態更新 `currentBankerId` → 顯示莊家名稱 1s
+4. `roomPhase` 變為 `betting` → 隱藏 Overlay（Alpha 淡出 0.3s）
+
+**元件:**
+
+| 元件 | 說明 |
+|------|------|
+| `bankerSelectionOverlay` | Node（全螢幕半透明背景，rgba(0,0,0,0.6)） |
+| `selectingLabel` | Label「正在選擇莊家...」 |
+| `selectionProgressBar` | ProgressBar（動畫填充） |
+| `selectedBankerLabel` | Label 顯示「[玩家名] — 莊家！」（選定後顯示） |
+
+**Prefab**: 內嵌於 `GamePlayPanel.prefab`（不單獨拆 prefab）
+**Script**: `GamePlayController.ts` 內 `showBankerSelectionOverlay()` / `hideBankerSelectionOverlay()` 方法
+
+---
+
+### 3.8 結算 Overlay（SettlementOverlay）
 
 **觸發時機**: roomPhase = `settling` → `round_end`
+
+**3.8.1 正常結算（有玩家跟注並比牌）:**
 
 **佈局（疊加在 GamePlay 場景上）:**
 
@@ -389,6 +465,38 @@ async dealCardToPlayer(cardNode: Node, targetPos: Vec3) {
 │                                           │
 │       [繼續下一局]  [離開房間]             │
 └───────────────────────────────────────────┘
+```
+
+**3.8.2 流局結算（所有閒家棄牌 — AC-007-6）:**
+
+當 `roomPhase` 跳至 `round_end` 且無任何閒家跟注（流局）時，顯示簡化的流局 Overlay：
+
+```
+┌──── 流局 ─────────────────────────────────┐
+│                                           │
+│         ⚠  本局流局                       │  ← 主標題（黃色）
+│    所有閒家棄牌，底注退回莊家              │  ← 說明文字
+│                                           │
+│    底注 50 ● 已退回 玩家1（莊）            │  ← 退款說明
+│                                           │
+│       [繼續下一局]  [離開房間]             │
+└───────────────────────────────────────────┘
+```
+
+**流局 UI 規則:**
+- 不顯示牌面表格（無牌發出，無需顯示）
+- `forfeitLabel` 顯示「本局流局 — 所有閒家棄牌」
+- `returnChipsLabel` 顯示「底注 X ● 已退回 [莊家名]」
+- 無籌碼流動動畫（底注退回，無盈虧）
+
+**SettlementController.ts 方法簽名（補充流局處理）:**
+
+```typescript
+export class SettlementController extends Component {
+  showNormalSettlement(results: PlayerResult[]): void;  // 正常結算（有比牌）
+  showForfeitSettlement(bankerName: string, betAmount: number): void; // 流局結算
+  private hide(): void;
+}
 ```
 
 **元件**: `SettlementOverlay.prefab`
@@ -485,6 +593,22 @@ export class GameManager {
   async leaveRoom(): Promise<void> {
     await this._room?.leave();
     this._room = null;
+  }
+
+  /**
+   * 斷線重連（AC-012-2）：在 60s 重連窗口內每 5s 嘗試一次。
+   * 成功時重新設定 listeners 並回傳 true；逾時或失敗回傳 false。
+   */
+  async reconnect(): Promise<boolean> {
+    if (!this._room) return false;
+    try {
+      // Colyseus Client 提供 reconnect() 需搭配 reconnectionToken
+      this._room = await this.client.reconnect(this._room.reconnectionToken);
+      this.setupListeners();
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 ```
@@ -679,12 +803,13 @@ assets/
 | roomPhase | GamePlayController 行為 | 操作區狀態 |
 |-----------|------------------------|-----------|
 | `lobby` | 顯示 GameLobby 場景 | N/A |
-| `banker_selection` | 切換至 GamePlay，顯示「選擇莊家中...」 | 所有按鈕 disabled |
-| `betting` | 顯示底注，BettingPanel 顯示 | 莊家：顯示底注選項；閒家：顯示跟注/棄牌 |
+| `banker_selection` | 切換至 GamePlay，顯示 BankerSelectionOverlay（進度條 + 莊家名稱）— 見 Section 3.7 | 所有按鈕 disabled |
+| `betting` | 隱藏 BankerSelectionOverlay，顯示底注，BettingPanel 顯示 | 莊家：`showBankerView()`（4 選項）；閒家：`showPlayerView()`（跟注/棄牌） |
 | `dealing` | 播放發牌動畫 | 所有按鈕 disabled |
 | `reveal` | 播放翻牌動畫序列 | 所有按鈕 disabled |
 | `settling` | 顯示比牌結果高亮，籌碼動畫 | 所有按鈕 disabled |
-| `round_end` | 顯示 SettlementOverlay | [繼續] / [離開房間] |
+| `round_end`（正常） | 顯示 SettlementOverlay（正常結算，含牌面表格）— Section 3.8.1 | [繼續] / [離開房間] |
+| `round_end`（流局） | 顯示 SettlementOverlay（流局，無牌面，顯示底注退回訊息）— Section 3.8.2 | [繼續] / [離開房間] |
 
 ---
 
