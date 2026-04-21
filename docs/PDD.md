@@ -1365,7 +1365,7 @@ SCR-007 底部玩家資訊列中的「籌碼：N」來源：
 │                                │
 │  顯示設定                       │
 │  減少動畫    [       ● 關]      │  ← F19：無障礙動畫減少開關
-│  （開啟後計時緊急以顏色閃爍代替震動）│
+│  （開啟後計時緊急改為靜態純紅色，無閃爍）│
 │                                │
 │  隱私設定                       │
 │  Cookie 同意管理                │
@@ -1843,7 +1843,7 @@ i18n key: `settings.logout_confirm_midgame` = '您正在遊戲中！離開將視
   },
   "settings": {
     "reduce_animation": "減少動畫",
-    "reduce_animation_hint": "開啟後計時緊急以顏色閃爍代替震動",
+    "reduce_animation_hint": "開啟後計時緊急改為靜態純紅色顯示，無閃爍（符合 WCAG 2.3.1）",
     "replay_tutorial": "重播新手引導",
     "cookie_management": "Cookie 同意管理",
     "music_volume": "背景音樂音量",
