@@ -1,0 +1,1177 @@
+# PDD — 三公遊戲（Sam Gong 3-Card Poker）Client Design Document
+
+<!-- SDLC Design Layer 4：Product Design Document (PDD) — Cocos Creator 3.8.x Frontend -->
+
+---
+
+## 1. Document Control
+
+| 欄位 | 內容 |
+|------|------|
+| **DOC-ID** | PDD-SAM-GONG-GAME-20260422 |
+| **專案名稱** | 三公遊戲（Sam Gong 3-Card Poker）即時多人線上平台 |
+| **文件版本** | v0.1-draft |
+| **狀態** | DRAFT |
+| **作者** | Evans Tseng（由 /devsop-autodev STEP-05 自動生成） |
+| **日期** | 2026-04-22 |
+| **來源 PRD** | PRD-SAM-GONG-GAME-20260421 v0.14-draft |
+| **來源 BRD** | BRD-SAM-GONG-GAME-20260421 v0.12-draft |
+| **建立方式** | /devsop-autodev STEP-05 自動生成 |
+
+### Change Log
+
+| 版本 | 日期 | 作者 | 變更摘要 |
+|------|------|------|---------|
+| v0.1-draft | 2026-04-22 | /devsop-autodev STEP-05 | 初稿；依 PRD v0.14-draft + BRD v0.12-draft 生成；涵蓋所有 SCR/CMP、動畫規格、色彩排版、i18n、無障礙、Cocos Creator 場景結構、PRD↔PDD 追溯矩陣 |
+
+---
+
+## 2. Design Principles
+
+### 2.1 核心設計原則
+
+| # | 原則 | 說明 |
+|---|------|------|
+| P1 | **Server-Authoritative Display（伺服器權威顯示）** | Client 端永遠不計算任何遊戲邏輯結果（牌值、比牌、結算、抽水）；所有顯示資料均來自 Colyseus Room State 廣播或 REST API 回應。Client 是「啞渲染器（dumb renderer）」。 |
+| P2 | **Mobile-First（行動裝置優先）** | 以 Android 8.0+（2GB RAM）為基準裝置設計；最小支援螢幕寬度 375px（iPhone SE）；iOS 14+ 相容。所有佈局優先確保手機端可用性，桌面端為延伸擴充。 |
+| P3 | **Touch Target ≥ 44pt** | 所有可互動 UI 元素（按鈕、卡片、捲動清單項目）最小觸控目標尺寸為 44×44pt，符合 Apple HIG 與 WCAG 無障礙標準。 |
+| P4 | **Performance Budget（效能預算）** | 基準裝置 ≥ 30fps；旗艦機型目標 ≥ 60fps（REQ-013）。動畫總時長 ≤ 3 秒（發牌+翻牌+結算合計）。首屏載入 ≤ 5 秒（4G，1MB/s）。 |
+| P5 | **Pixel-Art First（像素風優先）** | v1.0 主美術風格為像素風（Pixel-art）；賭場風格僅製作大廳主頁、牌局主畫面、結算畫面 A/B 測試素材（Beta 封測用，最終風格由 PM + Art Director 於 2026-07-21 前決定）。 |
+| P6 | **零硬編碼字串** | 所有顯示字串必須外部化至 `locale/zh-TW.json`；Client bundle 不得包含任何語言字串常數。 |
+| P7 | **合規優先（Compliance-First）** | 免責聲明、Cookie 橫幅、防沉迷彈窗、年齡驗證閘均為必要 UI 元素，不可在任何設定下被略過或隱藏。 |
+
+### 2.2 架構邊界（Client 禁止事項）
+
+> 本 PDD 所有 UI 元件均嚴格遵守以下約束：
+
+- Client **禁止**包含：`compareCards`、`calculatePoints`、`determineWinner`、`cardValue`、`handRank`、`shuffle`、`sortCards`、`suitRank`、`suitOrder`、`tieBreak`、`rakeFee`、`settlementCalc`、`bankerPayout`、`Math.random` 等關鍵字（REQ-001 AC-3）。
+- Client **不得**自行計算任何籌碼差值、淨利潤、賠率（`net_chips` 由 Server 廣播）。
+- 所有遊戲狀態轉換由 Server `phase` 廣播驅動；Client 不主動推進 phase。
+
+---
+
+## 3. Screen Inventory（畫面清單）
+
+| SCR-ID | 畫面名稱 | 進入點 | 離開點 |
+|--------|---------|--------|--------|
+| SCR-001 | Splash / Loading（啟動畫面）| App 啟動 | 完成資源載入 → SCR-003（首次）或 SCR-004（已同意 Cookie） |
+| SCR-002 | Age Gate — OTP Verification（年齡驗證）| SCR-004 點擊「正式對戰」且 `age_verified=false` | OTP 驗證成功 → SCR-004；取消 → SCR-004（僅限教學模式） |
+| SCR-003 | Cookie Consent Banner（Cookie 同意橫幅）| 首次 Web 載入 | 同意/拒絕 → SCR-001 繼續載入 → SCR-004 |
+| SCR-004 | Main Lobby（主大廳）| 登入成功、結局返回、配對取消 | 點擊廳別 → SCR-005；點擊教學 → SCR-008；點擊排行榜 → SCR-010；點擊每日任務 → SCR-014；點擊設定 → SCR-015；點擊帳號 → SCR-013 |
+| SCR-005 | Room Tier Selection（廳別選擇）| SCR-004 → 點擊快速配對 | 選擇廳別 → SCR-006；返回 → SCR-004 |
+| SCR-006 | Matchmaking Waiting（配對等待）| SCR-005 → 廳別確認 | 配對成功 → SCR-007；超時（90s）→ SCR-004；取消 → SCR-004 |
+| SCR-007 | Game Table（遊戲桌面，主遊戲畫面）| SCR-006 配對成功；SCR-008 教學轉正式 | 局結算完成 → SCR-009；主動離開 → SCR-004；斷線 → 重連恢復 SCR-007 |
+| SCR-008 | Tutorial（新手引導，3 輪固定劇本）| SCR-004 → 點擊教學；首次登入自動觸發 | 3 輪完成 → 引導完成頁 → SCR-004（解鎖正式對戰）；跳過說明文字 → 繼續下一步 |
+| SCR-009 | Settlement Overlay（結算疊加層）| SCR-007 → `phase=settled` 廣播 | 計時器歸零或點擊「下一局」→ SCR-007（繼續）或 SCR-004（離開） |
+| SCR-010 | Leaderboard（排行榜）| SCR-004 → 排行榜圖示；SCR-007 → 排行榜圖示 | 關閉 → 返回上一頁（SCR-004 或 SCR-007） |
+| SCR-011 | Chat Panel（聊天面板，遊戲內疊加層）| SCR-007 → 聊天圖示 | 關閉 → 返回 SCR-007 |
+| SCR-012 | Anti-Addiction Popup（防沉迷彈窗）| Server 訊號觸發：成人 2h 提醒；未成年 2h 硬性停止 | 成人確認後繼續 → 返回觸發前畫面；未成年強制 → 登出 → SCR-004 |
+| SCR-013 | Profile / Account（個人資料 / 帳號）| SCR-004 → 帳號圖示 | 關閉 → SCR-004 |
+| SCR-014 | Daily Tasks & Chips Claim（每日任務與籌碼領取）| SCR-004 → 每日任務圖示 | 關閉 → SCR-004 |
+| SCR-015 | Settings（設定）| SCR-004 → 設定齒輪；SCR-007 → 設定齒輪 | 關閉 → 返回上一頁 |
+
+---
+
+## 4. UI Component Library（UI 元件庫）
+
+### CMP-001：Card（撲克牌元件）
+
+| 屬性 | 規格 |
+|------|------|
+| **元件 ID** | CMP-001 |
+| **元件名稱** | Card |
+| **尺寸** | 64×96pt（標準）；遊戲桌面縮小版：48×72pt |
+| **像素風格** | 2px 黑色邊框；8px 圓角；像素點陣字體顯示牌面數字/花色 |
+
+**視覺狀態規格：**
+
+| 狀態 | 視覺描述 | 資源命名 |
+|------|---------|---------|
+| 面朝下（face-down）| 深藍色背面圖案（像素菱形紋）；顯示背面圖示 | `card_back.png` |
+| 面朝上 — 數字牌（2–9）| 白色牌面（`#FEFEFE`）；左上/右下角顯示點數 + 花色；中央大花色符號 | `card_[suit]_[value].png` |
+| 面朝上 — 人頭牌（10/J/Q/K）| 白色牌面；像素人物插圖；10/J/Q/K 字樣；此牌計分為 0 點 | `card_[suit]_[face].png` |
+| 面朝上 — A 牌 | 白色牌面；大 A 字樣；計分為 1 點 | `card_[suit]_a.png` |
+| 三公高亮（Sam Gong）| 金色（`#D4AF37`）邊框光暈動畫；牌面正常顯示；Server 廣播 `is_sam_gong=true` 後觸發 | `card_[suit]_[face].png` + `fx_sam_gong_glow.png` |
+| 禁用（disabled）| 灰階濾鏡（brightness 60%）；棄牌（Fold）玩家的牌保持 face-down 不翻開 | — |
+
+**花色顏色規格：**
+- 黑桃（♠）：`#1A1A1A`（黑）
+- 紅心（♥）：`#C0392B`（紅）
+- 方塊（♦）：`#C0392B`（紅）
+- 梅花（♣）：`#1A1A1A`（黑）
+
+**行為：**
+- 觸發翻牌：由 `phase=showdown` 事件驅動；執行 CMP-001 flip 動畫（0.3s）
+- 無獨立點擊事件（牌不可被玩家直接點擊觸發操作）
+
+---
+
+### CMP-002：Chip Stack（籌碼堆疊元件）
+
+| 屬性 | 規格 |
+|------|------|
+| **元件 ID** | CMP-002 |
+| **元件名稱** | Chip Stack |
+| **尺寸** | 籌碼幣：32×32pt；堆疊最多 5 枚視覺堆疊（超過以數字標示） |
+
+**籌碼面額顏色：**
+
+| 面額 | 顏色 | 資源 |
+|------|------|------|
+| 100 | 白色 `#FFFFFF` | `chip_100.png` |
+| 500 | 橙色 `#E67E22` | `chip_500.png` |
+| 1,000（1K）| 藍色 `#2980B9` | `chip_1000.png` |
+| 5,000（5K）| 紫色 `#8E44AD` | `chip_5000.png` |
+| 10,000（10K）| 綠色 `#27AE60` | `chip_10000.png` |
+| 50,000（50K）| 深綠 `#1A6B35` | `chip_50000.png` |
+| 100,000（100K）| 黑色 `#2C3E50` | `chip_100000.png` |
+| 500,000（500K）| 深紅 `#922B21` | `chip_500000.png` |
+| 1,000,000（1M）| 金色 `#D4AF37` | `chip_1000000.png` |
+
+**狀態：**
+- Default：靜態堆疊顯示，上方顯示數字標籤（monospace 字體）
+- Animating：籌碼飛行動畫（結算時 net_chips 飛向/飛離玩家頭像，0.8s）
+- Empty：不顯示籌碼堆疊，顯示「0」文字
+
+**行為：**
+- 籌碼數字以 monospace 字體顯示，千分位分隔（`#,###`）
+- 不可點擊；純顯示元件
+
+---
+
+### CMP-003：Player Avatar（玩家頭像元件）
+
+| 屬性 | 規格 |
+|------|------|
+| **元件 ID** | CMP-003 |
+| **元件名稱** | Player Avatar |
+| **尺寸** | 56×56pt（遊戲桌面）；72×72pt（個人資料頁） |
+| **形狀** | 圓形裁切；2px 邊框 |
+
+**狀態與視覺規格：**
+
+| 狀態 | 邊框顏色 | 疊加圖示 | 說明 |
+|------|---------|---------|------|
+| 一般閒家 | `#FFFFFF`（白）| — | 預設狀態 |
+| 莊家（Banker）| `#D4AF37`（金）| 皇冠圖示 `ic_crown.png`（頭像右上角）| Server `banker_seat_index` 對應座位 |
+| 當前行動中 | `#2980B9`（藍）閃爍 | — | 計時器倒數中 |
+| 棄牌（Fold）| `#95A5A6`（灰）| 「棄牌」文字標籤 | net_chips=0，顯示折疊圖示 |
+| 斷線中 | `#E74C3C`（紅）虛線 | 斷線圖示 `ic_disconnect.png` | `isConnected=false` |
+| 勝（Settlement）| `#27AE60`（綠）光暈 | — | winners 陣列中 |
+| 敗（Settlement）| `#C0392B`（紅）光暈 | — | losers 陣列中 |
+| 破產（Insolvency）| `#C0392B`（紅）閃爍 | 「破產！」標籤 | `banker_insolvent=true` |
+
+**包含子元素：**
+- 玩家暱稱標籤（最多 8 字元，超出顯示 `...`）：字體 12pt，`#FFFFFF`
+- 籌碼餘額數字（monospace）：字體 11pt，`#D4AF37`（金）
+- 下注額顯示：字體 10pt，`#FFFFFF`，顯示於頭像下方
+
+---
+
+### CMP-004：Bet Slider / Input（下注滑桿 / 輸入元件）
+
+| 屬性 | 規格 |
+|------|------|
+| **元件 ID** | CMP-004 |
+| **元件名稱** | Bet Slider / Input |
+| **尺寸** | 寬度：100% 行動端寬度 - 32pt padding；高度：64pt |
+
+**視覺規格：**
+- 滑桿軌道：高度 6pt；顏色漸層（`#2980B9` → `#D4AF37`）
+- 滑桿拇指（thumb）：24×24pt 圓形；`#FFFFFF` 填色；2pt `#D4AF37` 邊框；觸控目標擴展至 44×44pt
+- 左側顯示 min_bet 標籤（來自 Server Room State）
+- 右側顯示 max_bet 標籤（來自 Server Room State）
+- 中央顯示當前選擇金額：monospace 字體 18pt，`#FFFFFF`
+
+**快捷籌碼按鈕（可選）：**
+- 顯示常用面額按鈕（依房間廳別自動適配，如青銅廳：100 / 200 / 500）
+- 按鈕尺寸：56×32pt；圓角 8pt；背景 `#2980B9`；文字 `#FFFFFF` 12pt
+
+**狀態：**
+
+| 狀態 | 視覺 |
+|------|------|
+| Default | 滑桿可操作；顯示 min_bet |
+| Active（拖曳中）| 拇指放大至 32×32pt；顯示即時金額 |
+| Disabled | 整體灰階；不可互動；莊家下注等待時閒家此元件 disabled |
+| Loading | 按鈕顯示 spinner |
+
+**行為：**
+- 滑桿數值範圍：`[min_bet, max_bet]`，min/max 值由 Server Room State 提供，Client 不硬編碼
+- 下注確認後發送 `banker_bet { amount }` 訊息至 Server
+- Call 不傳送金額（由 Server 從 `banker_bet_amount` 讀取）
+- 下注金額不得超過玩家當前 `chip_balance`（Client 端顯示提示，最終驗證由 Server 執行）
+
+---
+
+### CMP-005：Action Buttons（操作按鈕組）
+
+| 屬性 | 規格 |
+|------|------|
+| **元件 ID** | CMP-005 |
+| **元件名稱** | Action Buttons（Call / Fold / See Cards） |
+| **按鈕尺寸** | 最小 120×44pt（觸控目標 ≥ 44×44pt）；圓角 8pt |
+
+**Call 按鈕：**
+- 背景：`#2980B9`（藍）
+- 文字：`locale.call`（zh-TW: 「跟注」）；字體 16pt 粗體；`#FFFFFF`
+- 下方顯示本局 `banker_bet_amount`（monospace 14pt，`#FFFFFF`）
+- 按下效果：背景加深 20%；scale 0.95
+
+**Fold 按鈕：**
+- 背景：`#C0392B`（紅）
+- 文字：`locale.fold`（zh-TW: 「棄牌」）；字體 16pt 粗體；`#FFFFFF`
+- 按下效果：背景加深 20%；scale 0.95
+
+**See Cards 按鈕（莊家查看手牌）：**
+- 背景：`#D4AF37`（金）
+- 文字：`locale.see_cards`（zh-TW: 「查看手牌」）；字體 14pt 粗體；`#1A1A1A`（深色文字確保對比度）
+
+**狀態：**
+
+| 狀態 | 視覺 | 觸發條件 |
+|------|------|---------|
+| Hidden | `opacity=0`；`width=0`（不佔空間）| 非操作 phase |
+| Appear | fade-in 0.2s；從底部滑入 0.3s | `phase=player-bet` 且輪到本玩家 |
+| Active | 正常顯示 | 輪到本玩家 |
+| Disabled | 灰階；`pointer-events=none` | 輪到他人；本玩家已操作 |
+| Processing | 顯示 spinner；`disabled` | 訊息已發送，等待 Server 確認 |
+
+---
+
+### CMP-006：Phase Indicator（階段指示器）
+
+| 屬性 | 規格 |
+|------|------|
+| **元件 ID** | CMP-006 |
+| **元件名稱** | Phase Indicator |
+| **尺寸** | 120×28pt；圓角 14pt |
+
+**Phase 對應顯示：**
+
+| Phase ENUM | 顯示文字（zh-TW）| 背景色 |
+|-----------|----------------|--------|
+| `waiting` | 等待玩家加入 | `#7F8C8D`（灰）|
+| `dealing` | 發牌中 | `#2980B9`（藍）|
+| `banker-bet` | 莊家下注中 | `#D4AF37`（金）|
+| `player-bet` | 玩家決策中 | `#E67E22`（橙）|
+| `showdown` | 翻牌比較 | `#8E44AD`（紫）|
+| `settled` | 結算完成 | `#27AE60`（綠）|
+
+- 字體：12pt；`#FFFFFF`；居中
+- 位置：遊戲桌面中央上方，底池金額下方
+
+---
+
+### CMP-007：Timer Bar（倒數計時條）
+
+| 屬性 | 規格 |
+|------|------|
+| **元件 ID** | CMP-007 |
+| **元件名稱** | Timer Bar |
+| **尺寸** | 寬度：100%（操作區域寬度）；高度：8pt |
+
+**視覺規格：**
+- 進度條軌道：`#2C3E50`（深灰）
+- 進度條填充：
+  - 0–10s 剩餘：`#C0392B`（紅，緊急）
+  - 10–20s 剩餘：`#E67E22`（橙，警示）
+  - 20s+ 剩餘：`#2980B9`（藍，正常）
+- 右側顯示剩餘秒數數字：monospace 14pt；顏色與進度條同步
+
+**行為：**
+- 計時邏輯：Client 以本地時鐘計算 `Date.now() - action_deadline_timestamp` 顯示剩餘時間
+- Server 是超時唯一判定者（REQ-011 AC-5）；Client 僅做顯示，誤差容忍 ≤ 1 秒
+- 倒數至 0 時：進度條閃爍 3 次後自動 Fold（Client 等待 Server 確認）
+- 預設計時 30 秒（由 Server `action_deadline_timestamp` 決定，Client 不硬編碼秒數）
+
+**狀態：**
+- Hidden：非玩家決策 phase 時不顯示
+- Active：倒數中
+- Expired：進度條歸零，閃爍動畫
+
+---
+
+### CMP-008：Settlement Card（結算資訊卡）
+
+| 屬性 | 規格 |
+|------|------|
+| **元件 ID** | CMP-008 |
+| **元件名稱** | Settlement Card |
+| **尺寸** | 寬度：100% 疊加層寬度；每行玩家高度：56pt |
+
+**每行玩家結算顯示：**
+- 左側：CMP-003 玩家頭像（40×40pt 縮小版）+ 玩家暱稱
+- 中央：手牌牌面（3 張 CMP-001，32×48pt）+ 點數標籤
+- 右側：`net_chips` 顯示
+  - 正值（贏）：`+N` 格式；顏色 `#27AE60`（綠）；字體 monospace 18pt 粗體；向上計數動畫（0.8s）
+  - 負值（輸）：`-N` 格式；顏色 `#C0392B`（紅）；字體 monospace 18pt 粗體；向下計數動畫（0.8s）
+  - 零（棄牌/平手）：顯示「棄牌」或「平手退注」標籤；顏色 `#7F8C8D`（灰）
+
+**特殊標籤：**
+- 三公勝利：「三公！」金色標籤疊加於牌面上
+- 因莊家破產得零：「因莊家破產，本局得零」提示文字
+- 莊家破產：莊家行顯示「破產！」紅色標籤
+
+---
+
+### CMP-009：Chat Bubble（聊天氣泡）
+
+| 屬性 | 規格 |
+|------|------|
+| **元件 ID** | CMP-009 |
+| **元件名稱** | Chat Bubble |
+| **尺寸** | 最小寬度 80pt；最大寬度 240pt；最小高度 32pt；圓角 12pt |
+
+**視覺規格：**
+- 自身訊息（右對齊）：背景 `#2980B9`；文字 `#FFFFFF` 13pt
+- 他人訊息（左對齊）：背景 `#34495E`；文字 `#FFFFFF` 13pt
+- 發送者名稱：10pt；`#D4AF37`（金）；顯示於氣泡上方
+- 訊息上限 200 字元（REQ-007 AC-4）
+- Rate Limit：每玩家每秒 ≤ 2 條；超限靜默丟棄（REQ-007 AC-5）
+
+**聊天面板（SCR-011）：**
+- 面板高度：螢幕高度 60%；從右側滑入（0.3s）
+- 輸入框：44pt 高；底部固定
+- 發送按鈕：48×44pt；`#2980B9`
+
+---
+
+### CMP-010：Anti-Addiction Overlay（防沉迷疊加層）
+
+| 屬性 | 規格 |
+|------|------|
+| **元件 ID** | CMP-010 |
+| **元件名稱** | Anti-Addiction Overlay |
+| **尺寸** | 全螢幕疊加層；背景 `rgba(0,0,0,0.85)` |
+
+**成人 2h 提醒版本（可繼續）：**
+- 標題：「注意健康」；字體 20pt 粗體；`#FFFFFF`
+- 內容：`locale.anti_addiction_adult_warning`（zh-TW: 「您已連續遊玩 X 分鐘，請適度休息，注意健康。」）；14pt；`#FFFFFF`
+- 確認按鈕：「我知道了，繼續遊戲」；CMP-005 規格；`#2980B9` 背景
+- 不可點擊背景遮罩關閉（必須明確點擊確認）
+
+**未成年 2h 強制停止版本（硬性停止）：**
+- 標題：「今日遊戲時間已達上限」；字體 20pt 粗體；`#C0392B`
+- 內容：`locale.anti_addiction_underage_stop`；14pt；`#FFFFFF`
+- 僅顯示「確認登出」按鈕（無繼續選項）
+- 確認後觸發登出，跳轉至 SCR-004 登出狀態
+
+**救濟籌碼補發通知（Rescue Chips Notification）：**
+- 樣式：底部 Toast 通知；高度 48pt；背景 `#27AE60`；圓角 8pt；顯示 3 秒後自動消失
+- 文字：`locale.rescue_chips_awarded`（zh-TW: 「您的籌碼已不足，系統已補發 1,000 救濟籌碼」）
+
+---
+
+## 5. Screen Wireframes（詳細佈局規格）
+
+### SCR-001：Splash / Loading
+
+```
+┌────────────────────────────────┐
+│                                │
+│                                │
+│         [LOGO 256×256pt]       │
+│       三公 Online              │
+│       (像素風 Logo)             │
+│                                │
+│     ████████████░░░░  60%      │  ← 載入進度條（CMP 風格）
+│     載入資源... (14pt灰色)       │
+│                                │
+│                                │
+│  娛樂性質，虛擬籌碼無真實財務價值  │  ← 免責聲明（12pt 最小，REQ-013 AC-5）
+└────────────────────────────────┘
+```
+
+- 背景色：`#0D2137`（深藍黑，像素風夜晚賭場天空）
+- Logo 動畫：淡入 0.5s
+- 進度條：顯示資源包載入百分比（Cocos Creator Bundle 進度）
+- 首屏載入目標 ≤ 5s（NFR-12）
+
+---
+
+### SCR-002：Age Gate — OTP Verification
+
+```
+┌────────────────────────────────┐
+│  ← 返回（僅教學模式可返回）       │
+│                                │
+│     年齡驗證                    │  ← 20pt 粗體
+│                                │
+│  請輸入您的出生年份：             │
+│  ┌──────────────────────────┐  │
+│  │  1 9 8 5        ▼        │  │  ← 年份選擇器（picker）
+│  └──────────────────────────┘  │
+│                                │
+│  請輸入您的手機號碼：             │
+│  ┌──────────────────────────┐  │
+│  │  +886 0912-345-678       │  │
+│  └──────────────────────────┘  │
+│                                │
+│  [      發送驗證碼      ]       │  ← 藍色按鈕
+│                                │
+│  ┌──────────────────────────┐  │
+│  │  請輸入 6 位驗證碼：       │  │
+│  │  [   ] [   ] [   ]       │  │
+│  │  [   ] [   ] [   ]       │  │
+│  └──────────────────────────┘  │
+│  重送驗證碼 (60s 冷卻)           │
+│                                │
+│  [      確認驗證      ]         │  ← 綠色按鈕
+│                                │
+│  娛樂性質，虛擬籌碼無真實財務價值  │
+└────────────────────────────────┘
+```
+
+**流程說明（REQ-014 AC-3）：**
+1. 玩家輸入出生年份 → Server 驗算 `currentYear - birthYear ≥ 18`
+2. 通過 → 輸入手機號碼 → 發送 OTP（6 碼，5 分鐘有效）
+3. OTP 輸入 → 驗證成功 → `age_verified=true` → 返回 SCR-004
+4. OTP 錯誤 ≥ 3 次 → 顯示「驗證碼已失效，請重新發送」
+5. 每日 OTP 上限 5 次；超限顯示 `locale.otp_daily_limit_exceeded`
+
+---
+
+### SCR-003：Cookie Consent Banner（Web 限定）
+
+```
+┌────────────────────────────────────────────────────┐
+│ 🍪  我們使用 Cookie                                  │
+│                                                      │
+│ 本站使用 Cookie 提升您的使用體驗。請選擇您同意的類型：    │
+│                                                      │
+│ [✓] 必要性 Cookie（無法停用）                          │
+│ [ ] 分析性 Cookie（可選）                              │
+│ [ ] 行銷性 Cookie（可選）                              │
+│                                                      │
+│ [    僅接受必要性    ]    [    接受所選項目    ]         │
+│                                                      │
+│ 了解更多 | 隱私權政策                                   │
+└────────────────────────────────────────────────────┘
+```
+
+- 固定於畫面底部（Bottom Sheet 樣式）
+- 歐盟 IP：所有 Cookie 類別預設未勾選（非 pre-checked）
+- 台灣 IP：必要性 Cookie 預設勾選（不可取消）
+- 同意記錄：時間戳 + IP hash + 版本號（保留 3 年）
+- 橫幅不影響遊戲背景載入；可在 SCR-001 載入期間顯示
+
+---
+
+### SCR-004：Main Lobby（主大廳）
+
+```
+┌────────────────────────────────┐
+│ [🏆排行榜]   三公Online  [⚙設定] │  ← 頂部導航列
+│                                │
+│ [頭像] 玩家暱稱     💎 鑽石廳   │  ← 玩家資訊列
+│        籌碼：1,234,567          │
+│                                │
+│ ┌──────────────────────────┐   │
+│ │  🎁 今日籌碼              │   │  ← 每日籌碼領取卡（REQ-020a）
+│ │  領取今日籌碼 +5,000      │   │
+│ │  [    立即領取    ]       │   │
+│ └──────────────────────────┘   │
+│                                │
+│ 選擇對戰廳：                    │
+│ ┌────────────┐ ┌────────────┐  │
+│ │  🥉 青銅廳  │ │  🥈 白銀廳  │  │
+│ │ 100-500    │ │ 1K-5K     │  │
+│ └────────────┘ └────────────┘  │
+│ ┌────────────┐ ┌────────────┐  │
+│ │  🥇 黃金廳  │ │  🏅 鉑金廳  │  │
+│ │ 10K-50K   │ │ 100K-500K  │  │
+│ └────────────┘ └────────────┘  │
+│ ┌────────────┐                 │
+│ │  💎 鑽石廳  │                 │
+│ │ 1M-5M     │                 │
+│ └────────────┘                 │
+│                                │
+│ [新手引導] [每日任務] [排行榜]    │  ← 底部快捷列
+│                                │
+│ 娛樂性質，虛擬籌碼無真實財務價值  │
+└────────────────────────────────┘
+```
+
+**廳別按鈕狀態：**
+- 可進入（籌碼 ≥ 入場門檻）：正常顯示
+- 不可進入：灰階 + 鎖定圖示 + 顯示「需 X 籌碼」
+- 籌碼 500–999：顯示底部 Toast：「籌碼不足進入任何房間，請完成每日任務或等待每日免費籌碼」
+
+---
+
+### SCR-005：Room Tier Selection（廳別選擇）
+
+```
+┌────────────────────────────────┐
+│ ←  選擇 青銅廳 模式              │
+│                                │
+│ ┌──────────────────────────┐   │
+│ │  ⚡ 快速配對               │   │
+│ │  系統自動配對相近等級對手    │   │
+│ │  等待時間 ≤ 30 秒（中位）  │   │
+│ │  [    立即配對    ]        │   │
+│ └──────────────────────────┘   │
+│                                │
+│ ┌──────────────────────────┐   │
+│ │  🔑 私人房間               │   │
+│ │  輸入房間 ID 或建立新房間   │   │
+│ │  房間 ID：[____________]  │   │
+│ │  [  加入  ]  [  建立  ]   │   │
+│ └──────────────────────────┘   │
+│                                │
+│ 本廳規格：                      │
+│   入場門檻：≥ 1,000 籌碼        │
+│   下注範圍：100 – 500 籌碼      │
+│   最多 6 人 / 最少 2 人         │
+│                                │
+└────────────────────────────────┘
+```
+
+---
+
+### SCR-006：Matchmaking Waiting（配對等待）
+
+```
+┌────────────────────────────────┐
+│                                │
+│      配對中...                  │
+│                                │
+│   ┌─────────────────────┐      │
+│   │  🥉 青銅廳           │      │
+│   │  100 – 500 籌碼     │      │
+│   └─────────────────────┘      │
+│                                │
+│      [正在尋找對手...]           │  ← 像素動畫旋轉
+│                                │
+│   ████████████░░░░░░  00:24    │  ← 配對倒數條（90s 總上限）
+│                                │
+│   找到玩家：2 / 6               │  ← 已加入人數
+│                                │
+│   ┌─────────────────────────┐  │
+│   │ ⚡ 擴大配對中（+白銀廳）  │  │  ← 超過 30s 後顯示
+│   └─────────────────────────┘  │
+│                                │
+│      [    取消配對    ]         │
+│                                │
+└────────────────────────────────┘
+```
+
+**行為規格：**
+- 0–30s：同廳配對（顯示「正在尋找同廳對手」）
+- 30–90s：擴展至相鄰廳級（顯示「⚡ 擴大配對中」橫幅）
+- 90s 超時：自動返回 SCR-004，顯示 Toast「配對超時，請稍後再試」
+
+---
+
+### SCR-007：Game Table（遊戲桌面）— 最核心畫面
+
+```
+┌────────────────────────────────────┐
+│ [🏆]   三公 Online    [💬] [⚙]     │  ← 頂部列（排行榜/聊天/設定）
+│                                    │
+│   [P2 頭像]  [P3 頭像]  [P4 頭像]   │  ← 上方座位（對面玩家）
+│   [🂠][🂠][🂠][🂠][🂠][🂠][🂠][🂠][🂠]│  ← 各玩家牌區（3張暗牌）
+│                                    │
+│ [P1]       ╭───────────────╮   [P5]│
+│            │   底池: 0     │       │  ← 橢圓桌面（像素綠色 #1A6B35）
+│  [🂠][🂠][🂠]│  抽水: 0      │[🂠][🂠][🂠]│
+│            │  [CMP-006]    │       │
+│            │  banker-bet   │       │
+│            ╰───────────────╯       │
+│                                    │
+│   [P6 頭像 - 莊家 👑]              │  ← 莊家（top center，金色邊框）
+│   [🂠][🂠][🂠]                       │
+│                                    │
+│ ────────────────────────────────── │
+│   [我的頭像]   籌碼：12,345         │  ← 本玩家資訊列
+│                                    │
+│   [  ████████████████  ] 00:28     │  ← CMP-007 計時條
+│                                    │
+│   [    跟注 500    ]  [  棄牌  ]    │  ← CMP-005（player-bet phase 時顯示）
+│   ┌─────────────────────────────┐  │
+│   │ ●─────────────────── 下注  │  │  ← CMP-004（banker-bet phase 時顯示）
+│   └─────────────────────────────┘  │
+│                                    │
+│  娛樂性質，虛擬籌碼無真實財務價值    │
+└────────────────────────────────────┘
+```
+
+**6 人桌位配置（順時鐘）：**
+
+```
+座位位置圖（邏輯座標）：
+
+        [座位3] [座位4]
+   [座位2]  ╭──────────╮  [座位5]
+            │  TABLE   │
+   [座位1]  ╰──────────╯  [座位6]
+        [本玩家/座位0]
+```
+
+| 座位邏輯 | 畫面位置 | 備注 |
+|---------|---------|------|
+| 本玩家（P0）| 畫面底部中央 | 主要操作區；永遠是 P0 視角 |
+| P1 | 畫面左側中 | |
+| P2 | 畫面左上 | |
+| P3 | 畫面上方中央 | 莊家通常顯示於此（視輪莊動態） |
+| P4 | 畫面右上 | |
+| P5 | 畫面右側中 | |
+
+**牌局元素佈局：**
+- 每位玩家牌區：3 個 CMP-001 card slot，face-down 暗牌
+- 莊家標記：皇冠圖示（`ic_crown.png`）固定於莊家頭像右上角
+- 底池顯示：桌面中央；monospace 字體；`#D4AF37`
+- 抽水顯示：底池下方；12pt；`#7F8C8D`
+
+---
+
+### SCR-008：Tutorial（新手引導）
+
+**步驟 1：規則說明**
+```
+┌────────────────────────────────┐
+│  新手引導（1/3）   [跳過說明 ×] │
+│                                │
+│  三公規則說明                   │
+│                                │
+│  [規則說明圖示 + 文字]           │
+│  • 3 張牌，點數加總 mod 10      │
+│  • 三公 = 3 張 10 點牌（最大）  │
+│  • 比大小規則...               │
+│                                │
+│  [    下一步    ]               │
+└────────────────────────────────┘
+```
+
+**步驟 2–4：3 輪模擬牌局**
+- 使用與 SCR-007 相同佈局（`tutorial_mode=true`）
+- 右上角顯示「教學模式」標籤；金色背景；不計扣籌碼
+- 第 1 輪：教學者三公必勝；顯示三公動畫 + 說明文字
+- 第 2 輪：普通比牌（5 點 vs 3 點）；顯示比牌說明
+- 第 3 輪：平手退注示範；顯示退注說明
+
+**步驟 5：教學完成**
+```
+┌────────────────────────────────┐
+│                                │
+│     🎉 教學完成！               │
+│                                │
+│  您已學會三公基本規則            │
+│  現在可以開始正式對戰！          │
+│                                │
+│  [    進入大廳    ]             │
+│                                │
+│  娛樂性質，虛擬籌碼無真實財務價值 │
+└────────────────────────────────┘
+```
+
+---
+
+### SCR-009：Settlement Overlay（結算疊加層）
+
+```
+┌────────────────────────────────┐
+│              結算              │  ← 20pt 粗體；居中
+│                                │
+│ ┌──────────────────────────┐   │
+│ │ 👑 [莊家頭像] 莊家暱稱    │   │  ← 莊家行（置頂）
+│ │ [🂡][🂡][🂡] 8 點         │   │
+│ │                    +0    │   │  ← 或 破產！標籤
+│ └──────────────────────────┘   │
+│                                │
+│ ┌──────────────────────────┐   │
+│ │ [頭像1] P1 玩家           │   │
+│ │ [♠K][♥Q][♣J] 三公！      │   │
+│ │                  +1,500  │   │  ← 綠色 +N 動畫
+│ └──────────────────────────┘   │
+│ ┌──────────────────────────┐   │
+│ │ [頭像2] P2 玩家           │   │
+│ │ [🂠][🂠][🂠] 棄牌          │   │
+│ │                     ±0   │   │  ← 灰色棄牌標籤
+│ └──────────────────────────┘   │
+│ ┌──────────────────────────┐   │
+│ │ [頭像3] 我               │   │
+│ │ [♦7][♣5][♥3] 5 點        │   │
+│ │                  -500    │   │  ← 紅色 -N 動畫
+│ └──────────────────────────┘   │
+│                                │
+│ 本局抽水：25 籌碼               │  ← 灰色小字
+│                                │
+│ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━   │
+│                                │
+│ [    繼續下一局    ]  倒數 5s   │  ← 自動倒數後進入下一局
+│ [    返回大廳    ]              │
+└────────────────────────────────┘
+```
+
+**莊家破產通知（`banker_insolvent=true`）：**
+- 莊家行顯示紅色「破產！」標籤
+- 疊加層頂部顯示通知條：「莊家籌碼不足，部分贏家依先到先得順序結算」
+- `insolvent_winners` 玩家行顯示「因莊家破產，本局得零」
+
+**顯示規格：**
+- 疊加層背景：`rgba(0,0,0,0.92)`
+- 最大高度：畫面高度 80%；超過則滾動
+- 結算動畫：`net_chips` 數字從 0 向上/向下計數（0.8s）；CMP-002 籌碼飛行動畫
+- 免責聲明：底部顯示（REQ-013 AC-5）
+
+---
+
+### SCR-010：Leaderboard（排行榜）
+
+```
+┌────────────────────────────────┐
+│ ←  排行榜                       │
+│                                │
+│  [  週榜  ] [  月榜  ]          │  ← 切換 Tab
+│                                │
+│  本週淨籌碼收益排名              │
+│  更新時間：2026-04-22 14:30    │
+│                                │
+│ ┌────────────────────────────┐ │
+│ │ #1  [頭像] 林小姐  💎        │ │
+│ │     +12,450,000 籌碼       │ │
+│ └────────────────────────────┘ │
+│ ┌────────────────────────────┐ │
+│ │ #2  [頭像] 張先生  🥇        │ │
+│ │     +9,820,000 籌碼        │ │
+│ └────────────────────────────┘ │
+│  ...（最多 Top 100）            │
+│                                │
+│ ┌────────────────────────────┐ │
+│ │ 我的排名：#47               │ │
+│ │ +345,000 籌碼               │ │
+│ └────────────────────────────┘ │
+│                                │
+│ 娛樂性質，虛擬籌碼無真實財務價值  │
+└────────────────────────────────┘
+```
+
+---
+
+## 6. Animation Specifications（動畫規格）
+
+### 6.1 Phase 轉換動畫總覽
+
+| Phase 轉換 | 動畫名稱 | 時長 | 觸發條件 |
+|-----------|---------|------|---------|
+| waiting → dealing | 發牌動畫（Deal Animation）| 0.5s × 3 張 × N 玩家（循序）≤ 1.5s 總計 | Server 廣播 `phase=dealing` |
+| dealing → banker-bet | 莊家手牌亮牌提示 | 0.3s | 莊家計時條出現 |
+| banker-bet → player-bet | 操作按鈕滑入 | 0.3s | Server 廣播輪到本玩家 |
+| player-bet → showdown | 全員翻牌（Showdown）| 0.3s × N 張（同時）| Server 廣播 `phase=showdown` |
+| showdown → settled | 結算籌碼飛行 | 0.8s | Server 廣播 `settlement` |
+
+**注意：** 動畫播放期間不阻塞玩家操作計時器（REQ-013 AC-2）；計時器在 Server 端持續倒數。
+
+---
+
+### 6.2 發牌動畫（Deal Animation）
+
+**規格：**
+- 觸發：`phase=dealing` 廣播
+- 動畫序列：
+  1. 牌從桌面中央（牌堆位置）飛出
+  2. 按座位順序依次飛向各玩家牌區（順時鐘，P0 最後）
+  3. 每張牌飛行時長：0.5s（Ease Out）
+  4. 落定後輕微彈跳（scale 1.0 → 1.1 → 1.0，0.1s）
+- 牌面：全程 face-down（暗牌）；己方手牌在飛行結束後顯示牌面（由 Server `myHand` 推送）
+- 每人 3 張，循序非同時：P1 張 1 → P1 張 2 → P1 張 3 → P2 張 1... → P0 張 3
+- 總時長上限：≤ 1.5s（REQ-013 AC-2）
+- 資源：`fx_deal_card.anim`
+
+---
+
+### 6.3 翻牌動畫（Showdown Flip）
+
+**規格：**
+- 觸發：`phase=showdown` 廣播
+- 動畫：所有未 Fold 玩家牌同時翻面
+  1. 牌面沿 Y 軸旋轉（0° → 90°）：0.15s
+  2. 換牌面素材（face-down → face-up）
+  3. 牌面沿 Y 軸完成旋轉（90° → 0°）：0.15s
+- 每張牌翻轉：0.3s（REQ-013 AC-2 ≤ 0.5s/張）
+- Fold 玩家的牌保持暗牌（不翻面）
+- 資源：`fx_card_flip.anim`
+
+---
+
+### 6.4 三公揭示動畫（Sam Gong Reveal）
+
+**規格：**
+- 觸發：Server 廣播 `settlement.winners` 中某玩家 `is_sam_gong=true`（由 Client 根據 server broadcast 顯示）
+- 動畫序列：
+  1. 3 張牌邊框從白色漸變為金色（`#D4AF37`）：0.2s
+  2. 金色光暈從牌面向外擴散（Particle 效果）：0.3s
+  3. 「三公！」文字從牌面中央升起並淡出：0.5s（monospace 20pt，`#D4AF37`）
+- 總時長：0.5s
+- 資源：`fx_sam_gong_glow.anim`、`fx_sam_gong_particles.png`
+
+---
+
+### 6.5 結算籌碼飛行動畫（Settlement Chips）
+
+**規格：**
+- 觸發：SCR-009 Settlement Overlay 出現後
+- CMP-002 籌碼幣從桌面中央底池位置飛向贏家頭像（或反向飛離輸家頭像）
+- 飛行路徑：Bezier 曲線（弧形）
+- 時長：0.8s（Ease In-Out）（REQ-013 AC-2）
+- net_chips 數字從 0 向目標值計數（Counter animation）：與籌碼飛行同步
+- 正值（+）：金幣從中央飛向玩家頭像
+- 負值（-）：金幣從玩家頭像飛向莊家方向
+- 資源：`fx_chip_fly.anim`、`fx_chip_counter.anim`
+
+---
+
+### 6.6 莊家破產動畫（Banker Insolvency）
+
+**規格：**
+- 觸發：`settlement.banker_insolvent=true`
+- 莊家頭像紅色閃爍（3 次閃爍，每次 0.2s）
+- 「破產！」紅色標籤從頭像上方升起：0.3s fade-in
+- 莊家籌碼餘額顯示從當前值快速歸零（Counter animation 反向）
+- 資源：`fx_insolvency.anim`
+
+---
+
+### 6.7 計時器緊急動畫（Timer Urgent）
+
+**規格：**
+- 觸發：計時器剩餘 ≤ 10 秒
+- 計時條顏色從藍色漸變至紅色（過渡 0.5s）
+- 剩餘 ≤ 5 秒：畫面輕微震動（Shake，幅度 ±2pt，0.1s 間隔）
+- 剩餘 0 秒：閃爍 3 次後自動 Fold（等待 Server 確認）
+
+---
+
+### 6.8 動畫效能約束（Performance Budget）
+
+| 動畫類型 | 時長上限 | 基準裝置幀率目標 |
+|---------|---------|--------------|
+| 發牌動畫（總計）| ≤ 1.5s | ≥ 30fps |
+| 翻牌動畫（每張）| ≤ 0.3s | ≥ 30fps |
+| 結算動畫 | ≤ 1.0s | ≥ 30fps |
+| 三段合計 P90 | ≤ 3.0s | ≥ 30fps |
+| 三公揭示 | ≤ 0.5s | ≥ 30fps |
+| 莊家破產 | ≤ 0.5s | ≥ 30fps |
+
+**測試方式（REQ-013 AC-2）：**
+- Web：Playwright 錄製時間線測量動畫時長
+- Android：`adb screenrecord` 幀計算
+- 基準裝置：Android 8.0 2GB RAM 實機
+- 每類動畫執行 ≥ 10 次，取 P90 值
+- Pass 條件：P90 ≤ 各段上限且合計 P90 ≤ 3s
+
+---
+
+## 7. Color Palette & Typography（色彩與排版）
+
+### 7.1 色彩系統
+
+| 用途 | 色彩名稱 | Hex 值 | 使用場景 |
+|------|---------|--------|---------|
+| 主色 — 桌面底色 | Primary Green | `#1A6B35` | 遊戲桌面 felt 背景；像素風草地綠 |
+| 重點 — 金 | Gold | `#D4AF37` | 莊家皇冠；三公高亮；籌碼邊框；排行榜首位；計時條（金色模式） |
+| 警示 — 紅 | Loss Red | `#C0392B` | 輸牌；棄牌按鈕；破產動畫；計時條（緊急）；未成年防沉迷標題 |
+| 操作 — 藍 | Action Blue | `#2980B9` | 跟注按鈕；主要互動色；聊天氣泡（自身）；進度條 |
+| 成功 — 綠 | Success Green | `#27AE60` | 勝利動畫；正向淨籌碼；救濟籌碼通知 |
+| 警告 — 橙 | Warning Orange | `#E67E22` | 計時條（中段警示）；廳別選擇按鈕；player-bet Phase Indicator |
+| 莊家色 — 深金 | Banker Purple | `#8E44AD` | showdown Phase Indicator |
+| 文字 — 白 | Text White | `#FFFFFF` | 深色背景上所有主要文字 |
+| 牌面 — 白 | Card BG | `#FEFEFE` | 撲克牌牌面背景（接近但非純白，柔化像素感） |
+| 背景 — 深夜藍 | BG Dark | `#0D2137` | Splash 背景；疊加層背景基底 |
+| 輔助文字 — 灰 | Subtitle Gray | `#7F8C8D` | 輔助說明文字；棄牌標籤；免責聲明 |
+| 疊加遮罩 | Overlay | `rgba(0,0,0,0.85)` | 防沉迷/結算疊加層背景 |
+
+**色盲安全原則（REQ-013 + Accessibility）：**
+- 勝/敗區分不僅依賴紅/綠顏色，同時使用「+N / -N」符號前綴及勝/敗文字標籤
+- 三公高亮使用金色邊框 + 「三公！」文字標籤，不僅依靠顏色
+- 計時條緊急狀態：顏色變化 + 震動動畫雙重提示
+
+### 7.2 排版系統
+
+| 層級 | 字體 | 字重 | 字號 | 顏色 | 使用場景 |
+|------|------|------|------|------|---------|
+| H1 — 標題 | System Font（iOS: SF Pro；Android: Roboto）| Bold（700）| 20pt | `#FFFFFF` | 畫面主標題 |
+| H2 — 副標題 | System Font | SemiBold（600）| 16pt | `#FFFFFF` | 段落標題；按鈕文字 |
+| Body — 正文 | System Font | Regular（400）| 14pt | `#FFFFFF` | 說明文字；規則文字 |
+| Caption — 說明 | System Font | Regular（400）| 12pt | `#7F8C8D` | 輔助說明；免責聲明（最小 12pt） |
+| **Mono — 數字** | **Monospace（iOS: SF Mono；Android: Roboto Mono）** | **Bold（700）** | **18pt（大）/ 14pt（中）/ 11pt（小）** | **`#D4AF37` 或 `#FFFFFF`** | **所有籌碼數字；牌點數；計時數字** |
+
+**數字格式規則：**
+- 籌碼數字使用千分位分隔：`1,234,567`
+- 下注金額前置正負號：`+1,500` / `-500`
+- 計時秒數：兩位數零補位：`05`（非 `5`）
+
+---
+
+## 8. Localization（i18n 本地化）
+
+### 8.1 語系配置
+
+| 項目 | 規格 |
+|------|------|
+| **主語系** | 繁體中文（Traditional Chinese，zh-TW）|
+| **字串檔案路徑** | `locale/zh-TW.json` |
+| **字串引用規則** | 所有 UI 顯示字串必須透過 `i18n.t('key')` 方法引用；禁止在 TypeScript 程式碼中硬編碼顯示文字 |
+| **v1.0 限定** | 僅繁體中文；多語系（英文/簡中）為 REQ-008 保留至 v1.x |
+
+### 8.2 i18n Key 命名規範
+
+```
+格式：{screen}_{component}_{purpose}
+範例：
+  game.action.call           → 「跟注」
+  game.action.fold           → 「棄牌」
+  game.phase.dealing         → 「發牌中」
+  game.phase.banker_bet      → 「莊家下注中」
+  game.phase.player_bet      → 「玩家決策中」
+  game.phase.showdown        → 「翻牌比較」
+  game.phase.settled         → 「結算完成」
+  game.sam_gong_label        → 「三公！」
+  game.banker_insolvent      → 「破產！」
+  game.fold_label            → 「棄牌」
+  game.tie_label             → 「平手退注」
+  game.insolvency_zero       → 「因莊家破產，本局得零」
+  settlement.rake_label      → 「本局抽水：」
+  settlement.next_round      → 「繼續下一局」
+  settlement.leave_lobby     → 「返回大廳」
+  tutorial.skip_rule         → 「跳過說明 ×」
+  tutorial.complete_title    → 「教學完成！」
+  anti_addiction.adult_warning → 「您已連續遊玩 {minutes} 分鐘，請適度休息，注意健康。」
+  anti_addiction.underage_stop → 「今日遊戲時間已達上限（2 小時）。依未成年保護規定，請明日再來。」
+  anti_addiction.continue    → 「我知道了，繼續遊戲」
+  anti_addiction.logout      → 「確認登出」
+  rescue_chips.awarded       → 「您的籌碼已不足，系統已補發 1,000 救濟籌碼」
+  lobby.disclaimer           → 「娛樂性質，虛擬籌碼無真實財務價值」
+  matchmaking.timeout        → 「配對超時，請稍後再試」
+  matchmaking.expanding      → 「⚡ 擴大配對中（{tier}）」
+  otp.daily_limit_exceeded   → 「今日OTP請求已達上限，請於次日UTC+8 00:00後重試」
+  chips.edge_500_999         → 「籌碼不足進入任何房間，請完成每日任務或等待每日免費籌碼（每日 00:00 UTC+8 重置）」
+  lobby.daily_chip_claim     → 「領取今日籌碼 +5,000」
+```
+
+### 8.3 `locale/zh-TW.json` 結構（節選）
+
+```json
+{
+  "game": {
+    "action": {
+      "call": "跟注",
+      "fold": "棄牌",
+      "see_cards": "查看手牌",
+      "confirm_bet": "確認下注"
+    },
+    "phase": {
+      "waiting": "等待玩家加入",
+      "dealing": "發牌中",
+      "banker_bet": "莊家下注中",
+      "player_bet": "玩家決策中",
+      "showdown": "翻牌比較",
+      "settled": "結算完成"
+    },
+    "sam_gong_label": "三公！",
+    "banker_insolvent": "破產！",
+    "fold_label": "棄牌",
+    "tie_label": "平手退注",
+    "insolvency_zero": "因莊家破產，本局得零"
+  },
+  "lobby": {
+    "disclaimer": "娛樂性質，虛擬籌碼無真實財務價值"
+  }
+}
+```
+
+---
+
+## 9. Accessibility（無障礙設計）
+
+### 9.1 觸控目標
+
+| 元件 | 最小觸控目標 |
+|------|-----------|
+| 所有按鈕（Call、Fold、確認等）| 44×44pt（符合 Apple HIG / WCAG 2.1 SC 2.5.5）|
+| 計時條拇指（Bet Slider thumb）| 44×44pt（視覺 24pt，觸控擴展 ±10pt）|
+| 聊天氣泡（可點擊舉報）| 44×44pt |
+| 導航列圖示 | 44×44pt |
+| 廳別選擇按鈕 | 最小 64×56pt |
+
+### 9.2 色盲安全設計
+
+| 設計場景 | 色彩解法 | 輔助機制 |
+|---------|---------|---------|
+| 勝（+）/ 敗（-）區分 | 綠色 / 紅色 | 必須同時顯示 `+N` / `-N` 符號及「贏」/「輸」文字標籤 |
+| 計時條緊急 | 藍→橙→紅漸變 | 同時顯示剩餘秒數數字 |
+| 三公高亮 | 金色邊框 | 同時顯示「三公！」文字標籤 |
+| 莊家識別 | 金色邊框 | 皇冠圖示（不純靠顏色）|
+| Phase Indicator | 不同背景色 | 同時顯示文字 Phase 名稱 |
+
+### 9.3 Screen Reader 標籤規格
+
+所有關鍵互動元素須設置 `accessibilityLabel`（iOS）/ `contentDescription`（Android）：
+
+| 元件 | accessibilityLabel 值（zh-TW）|
+|------|------------------------------|
+| Call 按鈕 | `跟注，下注金額 {amount} 籌碼` |
+| Fold 按鈕 | `棄牌，放棄本局` |
+| 計時條 | `剩餘時間：{seconds} 秒` |
+| 玩家頭像（莊家）| `{name}，莊家，籌碼 {balance}` |
+| 玩家頭像（閒家）| `{name}，閒家，籌碼 {balance}` |
+| 牌（暗牌）| `暗牌` |
+| 牌（亮牌）| `{suit}{value}，{points} 點` |
+| Cookie 同意按鈕 | `接受所選 Cookie 類型` |
+| 防沉迷確認按鈕 | `確認已閱讀防沉迷提醒，繼續遊戲` |
+
+### 9.4 對比度要求
+
+- 所有正文文字（白色 `#FFFFFF` 在深色背景）：對比度 ≥ 4.5:1（WCAG AA）
+- 免責聲明（12pt 最小字）：背景需確保對比度 ≥ 4.5:1
+- 按鈕文字（白色在藍色/紅色背景）：對比度 ≥ 3:1（WCAG AA Large Text）
+
+---
+
+## 10. Platform Notes（平台技術規格）
+
+### 10.1 Cocos Creator 3.8.x 場景結構
+
+```
+Scene Hierarchy（Cocos Creator 3.8.x Node Tree）：
+
+Canvas（設計解析度：750×1334）
+└── SafeArea                          // Safe Area Adapter（處理 Notch/Home Bar）
+    ├── UIManager                     // 全域 UI 管理器（Scene 切換、疊加層管理）
+    │
+    ├── Screens/                      // 所有畫面節點（同一時間只有一個 active）
+    │   ├── SplashScreen              // SCR-001
+    │   ├── AgeGateScreen             // SCR-002
+    │   ├── CookieBannerScreen        // SCR-003（Web 限定）
+    │   ├── LobbyScreen               // SCR-004
+    │   ├── RoomTierScreen            // SCR-005
+    │   ├── MatchmakingScreen         // SCR-006
+    │   ├── GameTableScreen           // SCR-007（最核心）
+    │   ├── TutorialScreen            // SCR-008
+    │   ├── LeaderboardScreen         // SCR-010
+    │   ├── ProfileScreen             // SCR-013
+    │   ├── DailyTaskScreen           // SCR-014
+    │   └── SettingsScreen            // SCR-015
+    │
+    └── Overlays/                     // 疊加層（始終在 Screens 上方）
+        ├── SettlementOverlay         // SCR-009（opacity toggle）
+        ├── ChatPanel                 // SCR-011（slide-in panel）
+        ├── AntiAddictionOverlay      // SCR-012（最高層級，全螢幕）
+        └── ToastManager              // 全域 Toast 通知（rescue chips 等）
+```
+
+**設計解析度：** 750×1334（iPhone 8 基準）；Cocos Creator 設定 `fitHeight` 縮放策略
+
+**Canvas Scaler：** `cc.Canvas` → `fitHeight`（高度適配）；寬度超出部分裁切
+
+---
+
+### 10.2 TypeScript 元件命名規範
+
+| 類型 | 命名規則 | 範例 |
+|------|---------|------|
+| Cocos Script 元件 | PascalCase + 功能後綴 | `GameTableController.ts` |
+| UI 元件腳本 | CMP-ID + 名稱 | `CardComponent.ts`、`ChipStackComponent.ts` |
+| 畫面管理器 | Screen 名稱 + Manager | `GameTableManager.ts` |
+| 本地化 | i18n 前綴 | `i18nManager.ts` |
+| Colyseus 相關 | Colyseus 前綴 | `ColyseusRoomClient.ts` |
+
+**嚴格禁止（CI Gate 掃描）：**
+- Client TypeScript 不得包含任何遊戲邏輯計算函式
+- 不得 import server-only package（REQ-001 AC-7 TypeScript project references）
+
+---
+
+### 10.3 Asset 命名規範（snake_case）
+
+| 資源類型 | 命名格式 | 範例 |
+|---------|---------|------|
+| 撲克牌牌面 | `card_{suit}_{value}.png` | `card_spade_k.png`、`card_heart_a.png` |
+| 撲克牌背面 | `card_back.png` | `card_back.png` |
+| 籌碼 | `chip_{denomination}.png` | `chip_100.png`、`chip_1000000.png` |
+| UI 圖示 | `ic_{name}.png` | `ic_crown.png`、`ic_disconnect.png` |
+| 特效 | `fx_{name}.png` / `fx_{name}.anim` | `fx_sam_gong_glow.png`、`fx_deal_card.anim` |
+| 背景 | `bg_{name}.png` | `bg_table_felt.png`、`bg_lobby.png` |
+| 頭像預設 | `avatar_default_{n}.png` | `avatar_default_1.png` |
+| 字型 | `font_{name}.ttf` | `font_pixel.ttf`、`font_mono.ttf` |
+
+### 10.4 Sprite Atlas（精靈圖集）
+
+| Atlas 名稱 | 包含內容 | 最大尺寸 |
+|-----------|---------|---------|
+| `cards_atlas.plist` | 所有 52 張牌牌面 + 背面；共 53 張 | 2048×2048 |
+| `chips_atlas.plist` | 9 種面額籌碼幣 | 1024×512 |
+| `ui_icons_atlas.plist` | 所有 UI 圖示（皇冠、斷線、設定、聊天等）| 1024×1024 |
+| `fx_atlas.plist` | 特效素材（光暈、粒子基礎元素）| 1024×1024 |
+
+**打包策略：** 使用 Cocos Creator Bundle 功能；遊戲核心資源為 `main` Bundle；教學模式資源為 `tutorial` Bundle（懶加載）
+
+### 10.5 Colyseus Client 整合規範
+
+```typescript
+// 正確範例：Client 僅顯示 Server 廣播資料
+room.state.settlement.winners.forEach((winner) => {
+  this.displayNetChips(winner.player_id, winner.net_chips); // 只顯示，不計算
+});
+
+// 錯誤範例（禁止）：Client 自行計算
+// const netChips = bet * multiplier; // ❌ 禁止
+```
+
+- 使用 `@colyseus/schema` 的 `onChange` 監聽 Room State 變化
+- 計時器：監聽 `state.timer`（`action_deadline_timestamp`），Client 以 `Date.now()` 計算剩餘顯示，不持有 Server-side 定時器邏輯
+- 斷線重連：使用 Colyseus 內建重連機制（`client.reconnect(roomId, sessionId)`）；自動重試 3 次（1/2/4s 退避）（REQ-011 AC-4）
+
+---
+
+## 11. Design↔PRD Traceability（設計需求追溯矩陣）
+
+| REQ-ID | 需求描述（摘要）| PDD 對應項目 | 對應說明 |
+|--------|--------------|------------|---------|
+| REQ-001 | Server 端 Fisher-Yates 洗牌；Client 禁止洗牌邏輯 | §2.2 架構邊界、§10.2 禁止關鍵字 | Client bundle CI 掃描禁止關鍵字清單；TypeScript project references CI gate |
+| REQ-002 | Server 發牌；Client 僅接收「手牌已發」通知；其他玩家暗牌 | CMP-001（face-down 狀態）、SCR-007 牌區佈局、§6.2 發牌動畫 | face-down 暗牌樣式；只有己方手牌顯示 |
+| REQ-003 | Server 比牌引擎；Client 不含比牌邏輯 | §2.2 架構邊界、SCR-009（結算顯示來自 settlement 廣播） | 三公標籤由 Server 廣播 is_sam_gong 驅動；Client 不計算點數 |
+| REQ-004 | Server 三步驟結算；Client 顯示廣播結果 | CMP-008（Settlement Card）、SCR-009（Settlement Overlay）、§6.5（籌碼飛行動畫）| net_chips 顯示全來自 settlement 廣播；Client 不計算 |
+| REQ-006 | 排行榜系統（Could Have）| SCR-010（Leaderboard 畫面）、SCR-004（排行榜入口圖示）、SCR-007（遊戲中排行榜圖示）| 週榜/月榜切換 Tab；Top 100 顯示；我的排名固定顯示 |
+| REQ-007 | 聊天室系統（Could Have）| SCR-011（Chat Panel）、CMP-009（Chat Bubble）、SCR-007（聊天圖示入口）| 200 字元上限；Rate Limit 靜默；斷線重連後不推歷史 |
+| REQ-010 | 配對系統（Matchmaking）| SCR-005（廳別選擇）、SCR-006（配對等待）、§3（Screen Inventory 流程）| 90s 倒數計時條；擴大配對提示；配對超時返回大廳 |
+| REQ-011 | Room State 同步；計時器由 action_deadline_timestamp 驅動 | CMP-006（Phase Indicator）、CMP-007（Timer Bar）、SCR-007 佈局 | CMP-007 說明 Client 用本地時鐘計算顯示；Server 判定超時 |
+| REQ-012 | 新手引導（3 輪固定劇本，不消耗籌碼）| SCR-008（Tutorial 畫面）| 教學模式標籤；3 輪動畫與正式局相同；完成後解鎖正式對戰 |
+| REQ-013 | UI / 動畫系統；像素風；動畫時長限制；免責聲明 | §2.1（P5 像素風原則）、§6（動畫規格）、§7（色彩排版）、免責聲明出現於 SCR-001/004/007/009/010/013/014（7 個畫面）| 動畫時長預算 ≤ 3s；免責聲明 12pt 最小 |
+| REQ-014 | 帳號系統；OTP 年齡驗證 | SCR-002（Age Gate OTP）、SCR-004（帳號登入流程）、SCR-013（個人資料）| OTP 流程 ≤ 3 步驟；年齡驗證閘 100% 覆蓋 |
+| REQ-015 | 防沉迷系統；成人 2h 彈窗；未成年 2h 強制登出 | CMP-010（Anti-Addiction Overlay）、SCR-012（防沉迷彈窗）、SCR-013（每日遊玩時間顯示）| 兩種版本（成人可繼續 / 未成年強制停止）；必須明確點擊確認 |
+| REQ-016 | Cookie 同意橫幅（Web 限定）| SCR-003（Cookie Consent Banner）| 3 類 Cookie 分別同意；歐盟 IP 非 pre-checked；台灣 IP 告知式 |
+| REQ-017 | 反作弊；速率限制（Server 端，Client 顯示錯誤提示）| SCR-007 → 操作按鈕 Processing 狀態；錯誤 Toast 通知（rate_limit_error 顯示 Toast） | Client 顯示速率限制錯誤提示；不含反作弊邏輯 |
+| REQ-019 | 個資刪除請求 | SCR-013（Profile/Account）→「刪除帳號」入口 | 帳號設定頁提供刪除入口；刪除確認對話框 |
+| REQ-020a | 每日免費籌碼（主動領取）+ 救濟機制 | SCR-004（領取今日籌碼按鈕）、CMP-010（救濟籌碼 Toast）、SCR-014（每日任務）| 大廳顯示「領取今日籌碼」按鈕；救濟為底部 Toast |
+| REQ-020b | 虛擬籌碼商店 IAP / 廣告（Should Have，條件啟用）| SCR-013 或 SCR-004 → 籌碼商店入口（UI 佔位；實際功能依法律意見書 2026-05-15 決定）| 籌碼商店入口已預留；不含 IAP 計算邏輯 |
+| REQ-021 | 每日任務系統 | SCR-014（Daily Tasks & Chips Claim）、SCR-004（每日任務圖示入口）| 任務列表；完成動畫；獎勵發放 Toast |
+
+---
+
+## 12. Open Questions（待決設計問題）
+
+以下問題需在實作前由 PM 或 Game Designer 決策：
+
+| # | 問題 | 影響範圍 | 截止日 | 優先度 |
+|---|------|---------|--------|--------|
+| PDD-Q1 | 美術風格最終選定（像素風 vs 賭場風）；Beta A/B 測試後由 PM + Art Director 決定（BRD D7，截止 2026-07-21）| 所有畫面 SCR-001 ~ SCR-015 美術資源；需準備兩套 Atlas | 2026-07-21 | HIGH |
+| PDD-Q2 | 遊戲桌面 6 人空桌位（未滿員）的顯示方式：(a) 空白座位；(b) 匿名剪影；(c) 不顯示空座位 | SCR-007 Game Table 佈局 | 2026-05-15（EDD 前）| MEDIUM |
+| PDD-Q3 | Settlement Overlay 的「下一局」自動倒數秒數（目前設計 5s）；Game Designer 確認 | SCR-009 | 2026-05-15 | MEDIUM |
+| PDD-Q4 | 頭像圖片來源：(a) 固定預設 8 款像素頭像；(b) 玩家上傳自訂頭像；v1.0 決策 | CMP-003；SCR-013 | 2026-05-15 | MEDIUM |
+| PDD-Q5 | 籌碼商店（REQ-020b）UI 設計是否現在預設佔位？法律意見書 2026-05-15 前不進入 Sprint | SCR-013 / 獨立 SCR-016（待分配）| 2026-05-15 | LOW（依 O1 法律意見）|
+| PDD-Q6 | 聊天室（REQ-007 Could Have）在 v1.0 是否實作？若實作，SCR-007 聊天圖示入口優先排入哪個 Sprint？ | SCR-011；SCR-007 頂部導航 | 2026-05-15 | LOW |
+| PDD-Q7 | 排行榜（REQ-006 Could Have）SCR-010 的我的排名「未上榜」時顯示什麼（顯示「--」或「未上榜，繼續加油！」）| SCR-010 | EDD 前 | LOW |
+| PDD-Q8 | 三公揭示動畫（§6.4）的 Particle 特效由 Cocos Creator 3.x Particle System 實作或 SpineAnimation；需 Art Director 確認 | §6.4 三公揭示動畫；`fx_sam_gong_particles.png` | 2026-05-15 | MEDIUM |
+| PDD-Q9 | 私人房間（SCR-005 AC-4）建立後的「等待加入」畫面是否共用 SCR-006 還是獨立設計？ | SCR-005；SCR-006 | EDD 前 | LOW |
+| PDD-Q10 | 每日任務（SCR-014）UI 中的任務完成動畫規格（checkbox 打勾動畫 / 彩帶爆炸動畫）需 Game Designer 確認 | SCR-014 | O6 截止 2026-05-15 | LOW |
+
+---
+
+*PDD 文件結束。下一步：STEP-06 ARCH（架構設計文件）或 STEP-07 EDD（工程設計文件）。*
+
+---
+
+> **文件維護聲明：** 本 PDD 由 /devsop-autodev STEP-05 自動生成，依據 PRD v0.14-draft 及 BRD v0.12-draft。Client 設計嚴格遵循 Server-authoritative 原則；所有遊戲邏輯計算均由 Colyseus Server 執行，Client 僅為渲染顯示層。
