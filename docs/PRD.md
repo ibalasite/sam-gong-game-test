@@ -10,7 +10,7 @@
 |------|------|
 | **DOC-ID** | PRD-SAM-GONG-GAME-20260421 |
 | **專案名稱** | 三公遊戲（Sam Gong 3-Card Poker）即時多人線上平台 |
-| **文件版本** | v0.11-draft |
+| **文件版本** | v0.14-draft |
 | **狀態** | DRAFT |
 | **作者** | Evans Tseng（由 /devsop-autodev STEP-03 自動生成） |
 | **日期** | 2026-04-22 |
@@ -34,7 +34,10 @@
 | v0.8-draft | 2026-04-22 | STEP-04 Review Round 8 (25 fixes) | Step 3 Call扣款、tutorial 3-round、BRD RTM填齊 |
 | v0.9-draft | 2026-04-22 | STEP-04 Review Round 9 (14 fixes) | §4a版本鎖定表、詐欺SOP、empty-pot guard |
 | v0.10-draft | 2026-04-22 | STEP-04 Review Round 10 (7 fixes) | 三公glossary、§8.1來源、成人2h測試向量 |
-| v0.11-draft | 2026-04-22 | STEP-04 Review Round 11 fix (this round) | F1~F9修正（BRD D15 Won't→Should Have說明、PRD Change Log v0.4-v0.11條目補齊、NFR-17 BRD R4→R10來源、REQ-006 AC-7平手語義統一、BRD NFR-17 Refresh Token規格、O12欄位對齊、BRD §5.4 500-999邊緣情況補每日任務、REQ-005 D15引用、§8.6 OTP/KYC/AdMob降級場景） |
+| v0.11-draft | 2026-04-22 | STEP-04 Review Round 11 fix (Round 11 fixes) | F1~F9修正（BRD D15 Won't→Should Have說明、PRD Change Log v0.4-v0.11條目補齊、NFR-17 BRD R4→R10來源、REQ-006 AC-7平手語義統一、BRD NFR-17 Refresh Token規格、O12欄位對齊、BRD §5.4 500-999邊緣情況補每日任務、REQ-005 D15引用、§8.6 OTP/KYC/AdMob降級場景） |
+| v0.12-draft | 2026-04-22 | STEP-04 Review Round 12 fix (8 fixes): ties net_chips:0, §5.4 label 0-8pt非三公, §5.3 empty-pot 3rd case, REQ-017 rolling-window label, AC-7 23:59:59, Change Log v0.11 date, REQ-006 AC-7→AC-8 fix note, §5.1 Step 6c wording | 8個問題修正 |
+| v0.13-draft | 2026-04-22 | STEP-04 Review Round 13 fix (6 fixes): Change Log dates 04-21→04-22, BRD v0.5-v0.12 dates, §5.3 anti-addiction O1→O合規, REQ-006 AC-8 label, all-fold banker schema note, v0.3b-draft dedup | 6個問題修正 |
+| v0.14-draft | 2026-04-22 | STEP-04 Review Round 14 fix (18 fixes): F1 REQ-004 AC-1 §5.5→§5.3, F2 §5.4 F14 1-7→1-8點, F3 BRD §5.5 Step 6b 空底池守衛擴充, F4 REQ-006 AC-8 tx_type清單補齊, F5 Change Log v0.12/v0.13新增, F6 v0.11 (this round)→(Round 11 fixes), F7 BRD日期修正, F8 BRD建立方式更新, F9 BRD狀態修正, F10 BRD O合規目標新增, F11 REQ-021 AC-1版本參考更新, F12 REQ-016 Dependencies循環依賴修正, F13 BRD RTM O2 ≥N指標填充, F14 REQ-020a Note D14引用, F15 §1.2 O2升級自說明, F16 PRD Glossary跨參BRD, F17 REQ-003/004標題BRD §5.5, F18 BRD NFR-19描述擴充 | 18個問題修正 |
 
 ---
 
@@ -49,7 +52,7 @@
 | 目標 ID | 目標描述 | PRD 對應 REQ | BDD 測試覆蓋 | 單元測試/整合測試 |
 |--------|---------|------------|------------|----------------|
 | **O1** | 推出 Server-authoritative 公平三公多人遊戲；GA 目標 **2026-08-21**；Server 權威計算率 100%，Client 無任何結果計算邏輯 | REQ-001, REQ-002, REQ-003, REQ-004, REQ-017（反作弊） | BDD S-001（REQ-001 洗牌）, S-002（REQ-002 發牌）, S-003（REQ-003 比牌）, S-004（REQ-004 結算）, S-017（REQ-017 反作弊；另含IT-anticheat-001整合測試）+ IT-fraud-001（§9.1a詐欺SOP）；BDD場景詳細內容於STEP-15生成；S-ID已預先保留，確保追溯鏈完整 | REQ-001: UT-shuffle-001（Fisher-Yates 分佈均勻性）；REQ-002: UT-deal-001（發牌三張正確性）；REQ-003: UT-compare-001（比牌向量測試集 ≥ 200）；REQ-004: IT-settlement-001（籌碼守恆並發測試）|
-| **O2** | 建立穩定同時在線（CCU）基礎；Peak CCU ≥ 500，DAU ≥ 2,000（**≤ 2027-02-21**） | REQ-010（配對）, REQ-011（房間狀態）, REQ-012（新手引導）, REQ-013（UI/動畫）, REQ-014（帳號驗證）, REQ-021, REQ-020a（Must Have，留存驅動，升級自O3，決策2026-04-22） | BDD S-010（REQ-010 配對）, S-011（REQ-011 房間）, S-012（REQ-012 教學）, S-013（REQ-013 UI）, S-014（REQ-014 帳號）, S-020a（REQ-020a 籌碼）, S-021（REQ-021 每日任務）；BDD場景詳細內容於STEP-15生成；S-ID已預先保留，確保追溯鏈完整 | REQ-011: IT-roomstate-001（斷線重連狀態同步）；其他 BDD STEP-15 回填 |
+| **O2** | 建立穩定同時在線（CCU）基礎；Peak CCU ≥ 500，DAU ≥ 2,000（**≤ 2027-02-21**） | REQ-010（配對）, REQ-011（房間狀態）, REQ-012（新手引導）, REQ-013（UI/動畫）, REQ-014（帳號驗證）, REQ-021, REQ-020a（Must Have，留存驅動，升級自Should Have（D14，2026-04-22）） | BDD S-010（REQ-010 配對）, S-011（REQ-011 房間）, S-012（REQ-012 教學）, S-013（REQ-013 UI）, S-014（REQ-014 帳號）, S-020a（REQ-020a 籌碼）, S-021（REQ-021 每日任務）；BDD場景詳細內容於STEP-15生成；S-ID已預先保留，確保追溯鏈完整 | REQ-011: IT-roomstate-001（斷線重連狀態同步）；其他 BDD STEP-15 回填 |
 | **O2（留存/社群）** | （補充指標，非O2 Must條件）排行榜週榜活躍玩家數≥500人[提案值，2026-05-15確認]（Launch+3M目標；**[提案值，待O6截止日2026-05-15 PM確認後正式化；確認前不作為正式驗收標準]**）| REQ-006（排行榜）— REQ-006為Could Have，其成功指標為補充指標（非O2 Must達成條件）；O2 Must達成條件僅依賴REQ-001~004, REQ-010~012, REQ-013, REQ-020a | UT/IT: IT-rank-001 | BDD S-006（STEP-15回填） |
 | **O2（社群參與）** | 聊天訊息日均發送量≥1,000則[提案值，2026-05-15確認]（Launch+3M目標；**[提案值，待O6截止日2026-05-15 PM確認後正式化；確認前不作為正式驗收標準]**）| REQ-007（聊天室） | UT/IT: IT-chat-001 | BDD S-007（STEP-15回填） |
 | **O3** | 建立虛擬籌碼變現模式（依法律意見書 2026-05-15 決定）；付費率 ≥ 3%（**≤ 2027-05-21**） | REQ-020b（Should Have，IAP/廣告） | BDD S-020b（將於STEP-15 BDD文件生成後回填）| STEP-15 回填 |
@@ -182,7 +185,7 @@ As a **Casual Player**, I want the server to deal exactly 3 face-down cards to e
 
 ---
 
-### REQ-003：比牌系統（Server evaluates hands per §5.5 rules）
+### REQ-003：比牌系統（Server evaluates hands per BRD §5.5 rules）
 
 **Feature Name：** Server 端三公比牌引擎
 
@@ -207,7 +210,7 @@ As a **Competitive Player**（林小姐）, I want the server to evaluate all ha
 
 ---
 
-### REQ-004：結算系統（Settlement per §5.5 payout model，rake 5%）
+### REQ-004：結算系統（Settlement per BRD §5.5 payout model，rake 5%）
 
 **Feature Name：** Server 端三步驟結算引擎（含抽水）
 
@@ -216,7 +219,7 @@ As a **Casual Player**, I want the server to automatically calculate and distrib
 
 **Acceptance Criteria：**
 
-1. 結算依 §5.5 三步驟原子性執行：Step 6a 確認每位閒家比牌結果；Step 6b 從輸家閒家下注額加總中扣除 5% 抽水（`floor(輸家下注額加總 × 0.05)`，最少 1 籌碼）；**空底池守衛（AC-1）：若底池（輸家閒家下注額加總）= 0，則抽水 = 0，最少1籌碼條款不適用；最少1籌碼僅在底池 > 0時生效**；Step 6c 依序支付（閒家勝：莊家直接支付本金 1× + N× 賠率，不經底池；閒家敗：閒家下注額歸底池扣抽水後給莊家）。事務隔離：使用PostgreSQL SERIALIZABLE隔離等級或READ COMMITTED + SELECT FOR UPDATE行級鎖；並發安全測試：100個並發結算請求，驗證籌碼守恆誤差 = 0。**【F1 莊家預扣時機（AC-1補充）】莊家下注確認後（§5.1 Step 2），Server立即預扣（escrow）banker_bet_amount：banker chip_balance -= banker_bet_amount（預扣至托管態）；Step 6c支付贏家時從預扣額及剩餘餘額中順序支付；破產判斷以Step 2後的chip_balance為準。**
+1. 結算依 §5.3 三步驟原子性執行：Step 6a 確認每位閒家比牌結果；Step 6b 從輸家閒家下注額加總中扣除 5% 抽水（`floor(輸家下注額加總 × 0.05)`，最少 1 籌碼）；**空底池守衛（AC-1）：若底池（輸家閒家下注額加總）= 0，則抽水 = 0，最少1籌碼條款不適用；最少1籌碼僅在底池 > 0時生效**；Step 6c 依序支付（閒家勝：莊家直接支付本金 1× + N× 賠率，不經底池；閒家敗：閒家下注額歸底池扣抽水後給莊家）。事務隔離：使用PostgreSQL SERIALIZABLE隔離等級或READ COMMITTED + SELECT FOR UPDATE行級鎖；並發安全測試：100個並發結算請求，驗證籌碼守恆誤差 = 0。**【F1 莊家預扣時機（AC-1補充）】莊家下注確認後（§5.1 Step 2），Server立即預扣（escrow）banker_bet_amount：banker chip_balance -= banker_bet_amount（預扣至托管態）；Step 6c支付贏家時從預扣額及剩餘餘額中順序支付；破產判斷以Step 2後的chip_balance為準。**
 2. 籌碼守恆驗證：每局結算後，全體玩家籌碼淨增減之和必須等於 `-(抽水額)`；誤差容忍 = 0 籌碼；驗證在結算事務提交後同步執行；失敗時：(1) 立即回滾結算事務；(2) 寫入CRITICAL log含game_id和差異金額；(3) 觸發PagerDuty告警，SRE響應SLA ≤ 15分鐘。
 3. 莊家破產規則（先到先得，D13）：若莊家籌碼不足以支付所有贏家，依閒家順時鐘座位順序逐一支付贏家；每位贏家依序收取本金（1×下注額）+N×下注額賠付；莊家籌碼歸零後，後續排隊贏家所得為零（不按比例分配，不取回本金，得零）；抽水 = floor(莊家破產前已實際完成結算的輸家閒家下注額加總 × 0.05)，最少1籌碼（底池 > 0 時）；莊家破產後未完成結算的輸家下注額不計入抽水底數；移除任何「按比例」抽水語言。破產後得零贏家的結算廣播使用insolvent_winners陣列（見§7 settlement廣播schema）。**【F1 破產判定（AC-3補充）】破產判定：若莊家Step 6c支付過程中chip_balance + escrow_amount < 本次應支付額，觸發D13先到先得；後續贏家得零。**
 4. 結算完成後，Server 在 100ms 內廣播最終狀態至所有 Client，包含每位玩家的籌碼變動明細。測試規格：工具 k6 或 Colyseus load test；測試環境：亞太區模擬（EC2 ap-northeast-1）；負載：500 CCU 持續 10 分鐘；樣本數 ≥ 10,000 次操作；通過條件：P95 ≤ 100ms 且 P99 < 500ms。
@@ -271,7 +274,7 @@ As a **Competitive Player**（林小姐）, I want to view weekly and monthly le
 5. 同籌碼收益平手決勝：依達成時間先後（先達成者排名較前）。
 6. 隱私選項：玩家可在帳號設定選擇「不顯示於排行榜」；選擇後從榜單中隱藏，不計入排名序號。
 7. 測試方法：模擬已知籌碼變動後驗證排行榜更新延遲（≤ 1 分鐘）及排序正確性（依淨收益降冪、同收益以時間先後）。
-8. 淨籌碼收益定義（AC-8）：本週（UTC+8週一00:00至週日23:59:59（UTC+8））內所有tx_type=game_win/game_lose的Transaction amount加總；daily_gift、rescue、iap、task_reward類型均不計入；同收益值平手決勝：依最早達成同淨收益值時的game_win記錄時間戳先後排序；相同淨收益時，較早達到該分數者（timestamp較小）排名較前，與AC-5「先達成者排名較前」保持一致；測試：預置已知遊戲交易序列，驗證排行榜排序與公式計算一致。
+8. 淨籌碼收益定義（AC-8）：本週（UTC+8週一00:00至週日23:59:59（UTC+8））內所有tx_type=game_win/game_lose的Transaction amount加總；daily_gift、rescue、iap、task_reward、ad_reward、refund、tutorial、admin_adjustment類型均不計入；同收益值平手決勝：依最早達成同淨收益值時的game_win記錄時間戳先後排序；相同淨收益時，較早達到該分數者（timestamp較小）排名較前，與AC-5「先達成者排名較前」保持一致；測試：預置已知遊戲交易序列，驗證排行榜排序與公式計算一致。
 
 **Out of Scope：** 好友榜（v1.x）；即時榜（毫秒級更新）。
 
@@ -498,7 +501,7 @@ As a **Casual Player** accessing via web browser, I want to be informed about co
 **Out of Scope：**
 - Cookie 橫幅 A/B 測試樣式優化（v1.0 僅標準樣式）。
 
-**Dependencies：** REQ-014（帳號系統，同意紀錄綁定帳號 ID 或訪客 ID）
+**Dependencies：** 無（Cookie同意為前置流程，不依賴帳號系統；已登入用戶的同意紀錄綁定由REQ-014提供，為REQ-016的選用整合而非硬性依賴）
 
 **Priority：** Must Have
 
@@ -564,7 +567,7 @@ As a **Casual Player**, I want to be able to request deletion of my personal dat
 
 **Feature Name：** 每日贈送籌碼與救濟機制
 
-**Priority：** Must Have（Note: BRD §5.3 MoSCoW原標注為Should Have；基於留存業務需求，PM決定升級為Must Have（2026-04-22，決策見PRD Change Log v0.3-draft）；O2 RTM對應已更新）
+**Priority：** Must Have（Note: BRD §5.3 MoSCoW原標注為Should Have；基於留存業務需求，PM決定升級為Must Have（2026-04-22，決策見BRD Decision Log D14（2026-04-22）及PRD Change Log v0.3-draft）；O2 RTM對應已更新）
 
 **User Story：**
 As a **Returning Player**, I want to receive free chips daily and get an emergency top-up when I'm about to run out so that I can always return to the game even after losing all my chips.
@@ -620,7 +623,7 @@ As a **Returning Player**, I want to optionally purchase more chips or watch ads
 
 **Acceptance Criteria：**
 
-- AC-1: 每日至少提供 3 個可完成任務（範例：完成 3 場對戰、連續登入 7 日、完成教學）；任務列表每日 00:00 UTC+8 重置；每項任務獎勵下限為500籌碼（確保500-999邊緣情況玩家可透過單一任務恢復進入青銅廳所需1,000籌碼資格）。注意：本AC完整版本待O6截止日2026-05-15 Game Designer完成任務清單配置後補入；在此之前，REQ-021 AC-1驗收暫緩，不作為Alpha（2026-06-21）阻斷條件；O6完成後需發布PRD v0.4-draft更新。**【F3 Alpha/GA截止門控聲明】** 本AC完整版待O6截止日2026-05-15補入；Alpha（2026-06-21）阻斷條件排除此AC；O6逾期未完成時，REQ-021自動降回Backlog（Should Have暫緩），並在PRD v0.4-draft中記錄。
+- AC-1: 每日至少提供 3 個可完成任務（範例：完成 3 場對戰、連續登入 7 日、完成教學）；任務列表每日 00:00 UTC+8 重置；每項任務獎勵下限為500籌碼（確保500-999邊緣情況玩家可透過單一任務恢復進入青銅廳所需1,000籌碼資格）。注意：本AC完整版本待O6截止日2026-05-15 Game Designer完成任務清單配置後補入；在此之前，REQ-021 AC-1驗收暫緩，不作為Alpha（2026-06-21）阻斷條件；O6完成後需發布PRD v0.4-draft更新。**【F3 Alpha/GA截止門控聲明】** 本AC完整版待O6截止日2026-05-15補入；Alpha（2026-06-21）阻斷條件排除此AC；O6逾期未完成時，REQ-021自動降回Backlog（Should Have暫緩），並在PRD 下一版本更新（待O6確認後）中記錄。
 - AC-2: 每項任務完成後發放 500–2,000 籌碼獎勵；獎勵即時到帳（Server push），Client 顯示動畫提示。
 - AC-3: 任務完成率量測：Launch+3M 時 DAU 每日任務完成率 ≥ 40%。量測規格：使用Firebase Analytics或內部Analytics平台；事件名稱：task_completed（屬性：task_id, player_id, date_utc8）；Pass定義：Launch+3M期間連續7日移動平均DAU任務完成率≥40%；分母=當日DAU（日首次登入唯一帳號數）。
 - AC-4: 500–999 籌碼邊緣情況：完成 1 個任務（最低獎勵 500 籌碼）後，玩家總籌碼 ≥ 1,000，可重新進入青銅廳。
@@ -770,7 +773,7 @@ Step 6: 三步驟結算（原子性執行，見 §5.3）
 
 > 所有賠率計算以整數籌碼為單位，不使用浮點運算。
 >
-> **【F14 0點賠率說明】** 0點（非三公）與1–7點同為最低點數類別，均適用1:1賠率（N=1）；0點非三公為比牌順序最末（最小），但賠率與1–7點相同。
+> **【F14 0點賠率說明】** 0點（非三公）與1–8點同為最低點數類別，均適用1:1賠率（N=1）；0點非三公為比牌順序最末（最小），但賠率與1–8點相同。
 
 ### 5.5 籌碼經濟約束
 
@@ -1139,6 +1142,11 @@ Web 首次載入：
 ---
 
 *PRD 文件結束。下一步：STEP-04 EDD（Engineering Design Document）。*
+
+---
+
+## Glossary
+術語定義見 BRD §16 Glossary（docs/BRD.md）。PRD 不重複定義，請以 BRD §16 為準。
 
 ---
 

@@ -11,10 +11,10 @@
 | **DOC-ID** | BRD-SAM-GONG-GAME-20260421 |
 | **專案名稱** | 三公遊戲（Sam Gong 3-Card Poker）即時多人線上平台 |
 | **文件版本** | v0.12-draft |
-| **狀態** | DRAFT（BRD Fixer Round 11 完成）|
+| **狀態** | DRAFT（STEP-01 Review Round 11 完成）|
 | **作者** | Evans Tseng（由 /devsop-idea 自動生成） |
-| **日期** | 2026-04-21 |
-| **建立方式** | /devsop-idea 自動生成；v0.9-draft 由 /devsop-autodev STEP-01 Review Round 8 自動修正 |
+| **日期** | 2026-04-22 |
+| **建立方式** | /devsop-idea 自動生成；由 /devsop-autodev STEP-01 Review Loop 自動修正（current: v0.12-draft） |
 
 ---
 
@@ -138,6 +138,7 @@
 | O2 | 建立穩定同時在線（CCU）基礎 | Peak CCU ≥ 500，DAU ≥ 2,000 | **GA後6個月（≤2027-02-21）**（F7） | Must |
 | O3 | 建立變現模式（虛擬籌碼商店）**【F2條件】** 依據法律意見書結果：若IAP合法，啟用虛擬籌碼IAP；若存在法律疑慮，降級為廣告觀看換籌碼模式（Rewarded Ad），IAP停用。 | ARPPU ≥ USD 10，付費率 ≥ 3%（IAP模式）；廣告觀看完成率 ≥ 80%（由 AdMob SDK 確認）；DAU 廣告觀看人數 ≥ 20% DAU（廣告模式） | **GA後9個月（≤2027-05-21）**（F7）（法律意見書 2026-05-15 前決定） | Should |
 | O4 | 擴展遊戲品類（大老二、21 點） | 至少 1 個新品類上線 | GA後12個月（≤2027-08-21） | Could |
+| O合規 | 建立台灣法規合規基礎（防沉迷、年齡驗證、詐欺防制、KYC） | 防沉迷合規100% + 法規審查通過 | GA前 | Must |
 
 ### 3.2 與公司策略的對應
 
@@ -165,8 +166,8 @@
 | O1：Server authoritative 公平性 | Server 權威計算 100%、0 P0 Cheat Bug | REQ-001（洗牌）、REQ-002（發牌）、REQ-003（比牌）、REQ-004（結算）、REQ-013（UI動畫）、REQ-017（反作弊） | BDD S-001~S-004, S-013, S-017; IT-anticheat-001 | ✅ PRD已對應 |
 | O2：CCU 規模 | Peak CCU ≥ 500 | REQ-010（配對）、REQ-011（房間狀態）、REQ-012（新手引導）、REQ-020a（每日贈送）、REQ-021（每日任務） | Load Test L-001; BDD S-010, S-011, S-012, S-020a, S-021 | ✅ PRD已對應 |
 | O2 | 新手引導完成率 ≥ 60%（§7） | REQ-012 Tutorial, REQ-010, REQ-011 | BDD Scenario S-012 | ✅ PRD已對應 |
-| O2（留存/社群） | 排行榜週榜活躍玩家數≥N | REQ-006（排行榜） | UT/IT: IT-rank-001; BDD S-006（STEP-15回填） | 🔲 待填 |
-| O2（社群參與） | 聊天訊息日均發送量≥N | REQ-007（聊天室） | UT/IT: IT-chat-001; BDD S-007（STEP-15回填） | 🔲 待填 |
+| O2（留存/社群） | 週榜DAU≥500人（提案值，2026-05-15前確認） | REQ-006（排行榜） | UT/IT: IT-rank-001; BDD S-006（STEP-15回填） | 🔲 待填 |
+| O2（社群參與） | 每房間每小時訊息≥1,000則（提案值，2026-05-15前確認） | REQ-007（聊天室） | UT/IT: IT-chat-001; BDD S-007（STEP-15回填） | 🔲 待填 |
 | O3：變現 | ARPPU ≥ USD 10 | REQ-020b（Should Have，IAP/廣告） | BDD S-020b（REQ-020b IAP/廣告）| ✅ PRD已對應 |
 | O4：品類擴展 | 1 個新品類 | （未來 PRD v2） | N/A | 🔲 待 v2 |
 | O1 | 動畫流暢度：基準裝置≥30fps；旗艦機型目標≥60fps（§5.3 UI）| REQ-013 UI/Animation | BDD Scenario S-013 | ✅ PRD已對應 |
@@ -350,7 +351,7 @@
 5. Server 比牌（依 §5.5 比牌規則）→ 計算結算金額
 6. **結算與籌碼分配（三步驟）**：
    - Step 6a（確認結果與底池）：Server 確認每位閒家的比牌結果；莊家獲勝之閒家下注額歸入底池；棄牌（Fold）閒家下注額=0，不下注，不入底池；莊家敗之閒家下注額不入底池（由莊家直接支付本金 1× + 賠率 N×）。
-   - Step 6b（抽水）：從底池（輸家閒家下注額加總）扣除 5% 抽水（floor 取整，最少 1 籌碼）；抽水進入遊戲維運基金。**空底池守衛：若底池=0（全員棄牌），則抽水=0，最少1籌碼條款不適用；最少1籌碼僅在底池>0時生效。**
+   - Step 6b（抽水）：從底池（輸家閒家下注額加總）扣除 5% 抽水（floor 取整，最少 1 籌碼）；抽水進入遊戲維運基金。**空底池守衛：若底池（輸家閒家下注額加總）= 0（即全部閒家均勝、全員棄牌、或勝者與棄牌者合計無任何輸家），則抽水=0；最少1籌碼條款不適用，與PRD §5.3 Step 6b空底池守衛一致。**
    - Step 6c（分配）：閒家勝時，莊家直接支付給該閒家：本金（1× 下注額，不經底池）+ N× 下注額賠率；合計閒家總取回 = (1+N)× 下注額，淨利潤 = N× 下注額。莊家勝時，底池中閒家下注額（扣 5% 抽水後）歸莊家。抽水僅從莊家獲勝收取的閒家下注額中扣除；閒家勝時的本金與賠率由莊家全額支付，不受抽水影響。結算完成後 Server 廣播最終狀態至所有 Client。
 
 #### 基礎規則
@@ -508,7 +509,7 @@ Outcome：華人三公玩家信任並長期使用「三公 Online」作為主要
 | NFR-16 | **效能：DB查詢延遲** | PostgreSQL查詢延遲；Redis操作延遲；含Circuit Breaker | PostgreSQL P95≤50ms；Redis P95≤5ms；含Circuit Breaker | k6 load test | Must |
 | NFR-17 | **安全：JWT Session安全** | 存取Token ≤ 1小時；Refresh Token有效期 ≤ 7天；封號後1分鐘失效；RS256/ES256簽名 | 封號後Token失效 ≤ 60秒 | 封號流程測試 + Token驗證 | Must |
 | NFR-18 | **可用性：DB熱備援Failover** | PostgreSQL主從streaming replication；自動failover ≤ 5分鐘 | 服務恢復時間 ≤ 5分鐘 | 季度failover演練（實際恢復測試通過）| Must |
-| NFR-19 | **安全：REST API速率限制** | 認證端點≤30次/min/IP；超限返回HTTP 429 | 各端點超限返回HTTP 429 | 壓測工具模擬超限請求驗證 | Must |
+| NFR-19 | **安全：REST API速率限制** | 認證端點≤30次/min/IP；每日籌碼/任務端點≤5次/min/user；一般API≤60次/min/user；全局IP≤300次/min；超限返回HTTP 429（詳見PRD NFR-19） | 各端點超限返回HTTP 429 | 壓測工具模擬超限請求驗證 | Must |
 
 ---
 
