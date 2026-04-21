@@ -304,14 +304,15 @@
 
 **Phase 對應顯示：**
 
-| Phase ENUM | 顯示文字（zh-TW）| 背景色 |
-|-----------|----------------|--------|
-| `waiting` | 等待玩家加入 | `#7F8C8D`（灰）|
-| `dealing` | 發牌中 | `#2980B9`（藍）|
-| `banker-bet` | 莊家下注中 | `#D4AF37`（金）|
-| `player-bet` | 玩家決策中 | `#E67E22`（橙）|
-| `showdown` | 翻牌比較 | `#8E44AD`（紫）|
-| `settled` | 結算完成 | `#27AE60`（綠）|
+| Phase ENUM | 顯示文字（zh-TW）| 背景色 | 備注 |
+|-----------|----------------|--------|------|
+| `waiting` | 等待玩家加入 | `#7F8C8D`（灰）| 一般等待狀態 |
+| `dealing` | 發牌中 | `#2980B9`（藍）| |
+| `banker-bet` | 莊家下注中 | `#D4AF37`（金）| |
+| `player-bet` | 玩家決策中 | `#E67E22`（橙）| |
+| `showdown` | 翻牌比較 | `#8E44AD`（紫）| |
+| `settled` | 結算完成 | `#27AE60`（綠）| |
+| 等待中（有新莊家）| 白色/#FFFFFF 文字 | `#7F8C8D`（灰）| `game.phase.waiting_new_banker` = "等待玩家加入，新莊家為：{player_name}" | 本局結算後（settled→waiting）顯示新莊家名稱 |
 
 - 字體：12pt；`#FFFFFF`；居中
 - 位置：遊戲桌面中央上方，底池金額下方
@@ -412,7 +413,7 @@
 **成人 2h 提醒版本（可繼續）：**
 - **觸發訊號：** Server 廣播 `anti_addiction_warning` 訊息，payload `{ type: "adult", session_minutes: 120 }`，當成人玩家累計遊玩時間達 2 小時時觸發。
 - **顯示內容：** 全螢幕 overlay；標題「注意健康」；字體 20pt 粗體；`#FFFFFF`
-- 內容：「您已連續遊戲2小時，請適當休息」（`anti_addiction.adult_warning`）；14pt；`#FFFFFF`
+- 內容：「您已連續遊玩 {minutes} 分鐘，請適度休息，注意健康。（minutes=120 when triggered; 由 Server payload anti_addiction_warning.session_minutes 提供）」（`anti_addiction.adult_warning`）；14pt；`#FFFFFF`
 - 確認按鈕：「我知道了，繼續遊戲」；CMP-005 規格；`#2980B9` 背景
 - **確認後行為：** Client 發送確認回應至 Server；Server 重置成人計時器（下次警告在 2 小時後）；popup 關閉，返回觸發前畫面繼續遊戲。
 - 不可點擊背景遮罩關閉（必須明確點擊確認）
@@ -641,7 +642,7 @@
 |---------|---------|---------|------|
 | 房間已滿 | Toast，顯示 3s 後消失 | `errors.room_full` | 「此房間已滿，請選擇其他房間」 |
 | 無效房間 ID | Inline 紅色錯誤標籤，顯示於 Room ID 輸入欄下方 | `errors.room_not_found` | 「找不到此房間，請確認 ID 是否正確」|
-| 籌碼不足（Insufficient Chips）| Toast（3s 自動消失）| `errors.insufficient_chips_for_tier` | '您的籌碼不足以進入此廳（需 {required} 籌碼，您目前有 {current} 籌碼）' |
+| 籌碼不足（Insufficient Chips）| Toast（3s 自動消失）| `errors.insufficient_chips_for_tier` | '您的籌碼不足以進入此廳（需 {required} 籌碼，目前僅有 {current} 籌碼）' |
 
 ---
 
@@ -1186,6 +1187,11 @@ SCR-007 底部玩家資訊列中的「籌碼：N」來源：
 - 每日籌碼領取：點擊後呼叫 API；成功後更新按鈕狀態為「已領取」並顯示倒數至明日時間
 - task_reward_popup 子元件必須包含免責聲明（REQ-013 AC-5）
 
+**每週任務 Tab（v1.x 預留）：**
+- v1.0 UI：SCR-014 僅顯示每日任務 Tab；不顯示週任務 Tab（完全隱藏，避免引起用戶期待）
+- v1.x 時：在現有「每日任務」Tab 右側新增「每週任務」Tab；Tab 設計沿用 SCR-013/014 現有 Tab 樣式
+- 相關 i18n 預留：`lobby.weekly_task_tab` = '每週任務（即將推出）' 加入 §8.3 lobby namespace
+
 ---
 
 ### SCR-011：Chat Panel（聊天面板）
@@ -1273,8 +1279,8 @@ SCR-007 底部玩家資訊列中的「籌碼：N」來源：
 │   ║      ⏰ 注意健康          ║     │  ← 標題 20pt 粗體；#FFFFFF
 │   ╠══════════════════════════╣     │
 │   ║                          ║     │
-│   ║  您已連續遊戲2小時，       ║     │  ← 內容文字 14pt；#FFFFFF
-│   ║  請適當休息。              ║     │
+│   ║  您已連續遊玩 120 分鐘，    ║     │  ← 內容文字 14pt；#FFFFFF（anti_addiction.adult_warning）
+│   ║  請適度休息，注意健康。     ║     │
 │   ║                          ║     │
 │   ║  本次提醒後計時重置，       ║     │  ← 2h 冷卻說明（灰色 12pt）
 │   ║  下次提醒將在2小時後再次    ║     │
@@ -1630,7 +1636,7 @@ i18n key: `settings.logout_confirm_midgame` = '您正在遊戲中！離開將視
    - 橫幅樣式：`#D4AF37` 金色文字，半透明深色底框，24pt
 3. 新莊家皇冠：延遲 0.1s 後 Scale 0→1 + Fade In（0.3s ease-out），位置：玩家頭像正上方
 4. 皇冠資產：`fx_crown_appear.anim`（Cocos Creator Spine 動畫 或 SpriteFrame 序列）
-5. 音效：`sfx_crown_transition.mp3`（詳見 §6.8 SFX 資產表；v1.0 placeholder 為 sfx_button_click，beta 前替換）
+🔊 音效：`sfx_crown_transition.mp3`（詳見 §6.8 SFX 資產表；v1.0 placeholder 為 sfx_button_click，beta 前替換）
 
 ---
 
@@ -1763,7 +1769,8 @@ i18n key: `settings.logout_confirm_midgame` = '您正在遊戲中！離開將視
       "banker_bet": "莊家下注中",
       "player_bet": "玩家決策中",
       "showdown": "翻牌比較",
-      "settled": "結算完成"
+      "settled": "結算完成",
+      "waiting_new_banker": "等待玩家加入，新莊家為：{player_name}"
     },
     "sam_gong_label": "三公！",
     "banker_insolvent": "破產！",
@@ -1813,7 +1820,8 @@ i18n key: `settings.logout_confirm_midgame` = '您正在遊戲中！離開將視
     "disclaimer": "娛樂性質，虛擬籌碼無真實財務價值",
     "daily_chip_claim": "領取今日籌碼 +5,000",
     "chip_edge_500_999": "籌碼不足進入任何房間，請完成每日任務或等待每日免費籌碼（每日 00:00 UTC+8 重置）",
-    "daily_task_entry": "每日任務"
+    "daily_task_entry": "每日任務",
+    "weekly_task_tab": "每週任務（即將推出）"
   },
   "matchmaking": {
     "timeout": "配對超時，請稍後再試",
@@ -2118,7 +2126,7 @@ room.state.settlement.winners.forEach((winner) => {
 | REQ-010 | 配對系統（Matchmaking）| SCR-005（廳別選擇）、SCR-006（配對等待）、§3（Screen Inventory 流程）| 90s 倒數計時條；擴大配對提示；配對超時返回大廳 |
 | REQ-011 | Room State 同步；計時器由 action_deadline_timestamp 驅動 | CMP-006（Phase Indicator）、CMP-007（Timer Bar）、SCR-007 佈局 | CMP-007 說明 Client 用本地時鐘計算顯示；Server 判定超時 |
 | REQ-012 | 新手引導（3 輪固定劇本，不消耗籌碼）| SCR-008（Tutorial 畫面）| 教學模式標籤；3 輪動畫與正式局相同；完成後解鎖正式對戰 |
-| REQ-013 | UI / 動畫系統；像素風；動畫時長限制；免責聲明 | §2.1（P5 像素風原則）、§6（動畫規格）、§7（色彩排版）、免責聲明出現於 SCR-001/002/004/005/006/007/009/010/013/014/015/016 共 12 個畫面；另 SCR-014 task_reward_popup 子元件亦包含免責聲明：(1) SCR-001 啟動畫面；(2) SCR-002 年齡驗證；(3) SCR-004 主大廳；(4) SCR-005 廳別選擇；(5) SCR-006 配對等待；(6) SCR-007 遊戲桌面；(7) SCR-009 結算疊加層；(8) SCR-010 排行榜；(9) SCR-013 個人資料；(10) SCR-014 每日任務（含 task_reward_popup 子元件）；(11) SCR-015 設定；(12) SCR-016 籌碼商店（v1.x 佔位，免責聲明需求已記錄）| 動畫時長預算 ≤ 3s；免責聲明 12pt 最小 |
+| REQ-013 | UI / 動畫系統；像素風；動畫時長限制；免責聲明 | §2.1（P5 像素風原則）、§6（動畫規格）、§7（色彩排版）、免責聲明出現於 SCR-001/002/004/005/006/007/008/009/010/013/014/015/016 共 13 個畫面；另 SCR-014 task_reward_popup 子元件亦包含免責聲明：(1) SCR-001 啟動畫面；(2) SCR-002 年齡驗證；(3) SCR-004 主大廳；(4) SCR-005 廳別選擇；(5) SCR-006 配對等待；(6) SCR-007 遊戲桌面；(7) SCR-008 新手引導；(8) SCR-009 結算疊加層；(9) SCR-010 排行榜；(10) SCR-013 個人資料；(11) SCR-014 每日任務（含 task_reward_popup 子元件）；(12) SCR-015 設定；(13) SCR-016 籌碼商店（v1.x 佔位，免責聲明需求已記錄）| 動畫時長預算 ≤ 3s；免責聲明 12pt 最小 |
 | REQ-014 | 帳號系統；OTP 年齡驗證 | SCR-002（Age Gate OTP）、SCR-004（帳號登入流程）、SCR-013（個人資料）| OTP 流程 ≤ 3 步驟；年齡驗證閘 100% 覆蓋 |
 | REQ-015 | 防沉迷系統；成人 2h 彈窗；未成年 2h 強制登出 | CMP-010（Anti-Addiction Overlay）、SCR-012（防沉迷彈窗）、SCR-013（每日遊玩時間顯示）| 兩種版本（成人可繼續 / 未成年強制停止）；必須明確點擊確認 |
 | REQ-016 | Cookie 同意橫幅（Web 限定）| SCR-003（Cookie Consent Banner）| 3 類 Cookie 分別同意；歐盟 IP 非 pre-checked；台灣 IP 告知式 |
@@ -2127,7 +2135,7 @@ room.state.settlement.winners.forEach((winner) => {
 | REQ-020a | 每日免費籌碼（主動領取）+ 救濟機制 | SCR-004（領取今日籌碼按鈕）、CMP-010（救濟籌碼 Toast）、SCR-014（每日任務）| 大廳顯示「領取今日籌碼」按鈕；救濟為底部 Toast |
 | REQ-020b | 虛擬籌碼商店 IAP / 廣告（Should Have，條件啟用）| SCR-013 或 SCR-004 → 籌碼商店入口（UI 佔位；實際功能依法律意見書 2026-05-15 決定）、SCR-016（籌碼商店佔位畫面）| 籌碼商店入口已預留；不含 IAP 計算邏輯 |
 | REQ-009 | 每日/週任務籌碼（Daily/Weekly Chip Tasks）| SCR-004（任務入口按鈕：底部快捷列「每日任務」圖示）、SCR-004（大廳底部快捷列：每日任務圖示 → SCR-014；排行榜圖示 → SCR-010）、SCR-014（每日任務與籌碼領取畫面：任務列表、完成進度、籌碼領取）| 任務列表及獎勵金額由 Server API 提供，Client 不硬編碼；每日籌碼任務在 SCR-004 大廳設有明顯入口按鈕（i18n key: `lobby.daily_task_entry`）；週任務在 SCR-014 以獨立 Tab 顯示（v1.x 預留） |
-| REQ-018 | KYC / 實名認證 / 防沉迷合規（Compliance）| SCR-003（Age Verification flow：OTP 年齡驗證閘，`age_verified` 旗標控制正式對戰入口）、CMP-010（Anti-Addiction Overlay：成人 2h 提醒 + 未成年 2h 硬停兩版本）、SCR-012（防沉迷彈窗：完整 wireframe 兩版本，含倒數至午夜計時器）| KYC 年齡驗證由 Server 執行（`currentYear - birthYear ≥ 18`）；Client 提供 SCR-002 OTP 輸入介面；防沉迷信號由 Server 廣播（`anti_addiction_warning` / `anti_addiction_signal`）；Client CMP-010 依信號類型（adult/underage）顯示對應版本；所有合規 UI 元素不可在任何設定下被略過（P7 原則） |
+| REQ-018 | KYC / 實名認證 / 防沉迷合規（Compliance）| SCR-002（OTP 年齡驗證閘 / Age Gate）、CMP-010（Anti-Addiction Overlay：成人 2h 提醒 + 未成年 2h 硬停兩版本）、SCR-012（防沉迷彈窗：完整 wireframe 兩版本，含倒數至午夜計時器）| KYC 年齡驗證由 Server 執行（`currentYear - birthYear ≥ 18`）；Client 提供 SCR-002 OTP 輸入介面；防沉迷信號由 Server 廣播（`anti_addiction_warning` / `anti_addiction_signal`）；Client CMP-010 依信號類型（adult/underage）顯示對應版本；所有合規 UI 元素不可在任何設定下被略過（P7 原則） |
 | REQ-021 | 每日任務系統 | SCR-014（Daily Tasks & Chips Claim）、SCR-004（每日任務圖示入口）| 任務列表；完成動畫；獎勵發放 Toast |
 | REQ-008 | 多語系 i18n 框架（v1.x）| §8（Localization）、§2.1 P6（零硬編碼字串）| v1.0 僅繁體中文；英文/簡中框架預留至 v1.x |
 
