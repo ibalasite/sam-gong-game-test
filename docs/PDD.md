@@ -110,6 +110,7 @@
 ```typescript
 // MainMenuController.ts（方法簽名）
 export class MainMenuController extends Component {
+  onLoad(): Promise<void>;              // App 啟動時初始化：呼叫 GameManager.instance.connect(SERVER_URL)
   onCreateRoom(): Promise<void>;        // 呼叫 GameManager.createRoom()
   onJoinRoom(): Promise<void>;          // 讀取 roomCodeInput → GameManager.joinRoom(code)
   onOpenRules(): void;                  // 顯示 RulesPanel
@@ -277,7 +278,7 @@ export class BettingPanelComponent extends Component {
 
 **Scripts:**
 
-- `GamePlayController.ts`: 主控制器，監聽 Colyseus state，分發 UI 更新
+- `GamePlayController.ts`: 主控制器，監聽 Colyseus state，分發 UI 更新；含 `showBankerSelectionOverlay()` / `hideBankerSelectionOverlay()` 管理 BANKER_SELECTION 過渡畫面（Section 3.7）
 - `CardComponent.ts`: 單張牌的顯示邏輯（正面/背面/翻牌動畫）
 - `PlayerSlotComponent.ts`: 玩家位置組件（頭像/名稱/籌碼/狀態/莊家標誌）
 - `BettingPanelComponent.ts`: 押注操作 Panel（跟注/棄牌/禁用邏輯）
@@ -551,6 +552,10 @@ export class GameManager {
     return this._instance ||= new GameManager();
   }
 
+  /**
+   * 建立 WebSocket 連線。
+   * 呼叫時機：App 啟動時由 MainMenuController.onLoad() 呼叫一次（非每次進場景都呼叫）。
+   */
   async connect(serverUrl: string): Promise<void> {
     this.client = new Colyseus.Client(serverUrl);
   }
