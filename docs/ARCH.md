@@ -161,7 +161,7 @@ Client (Player)            │                    │                    │
      │─── join room ───────►│                    │                    │
      │                     │─── client.join ────►│                    │
      │                     │                    │── onJoin ──────────►│ add PlayerState
-     │                     │                    │   verify room code  │ seatOrder.push
+     │                     │                    │   verify room code  │ bankerQueue.push
      │◄── state diff ──────│◄──── schema sync ──│◄── diff patch ─────│
      │                     │                    │                    │
      │─── start_game ──────►│                    │                    │
@@ -475,6 +475,8 @@ sam-gong-game/                          # Monorepo 根目錄
 │   ├── PDD.md
 │   ├── TECH_STACK.md
 │   ├── EDD.md
+│   ├── API.md                          # Colyseus 訊息協議 / 錯誤碼 / 客戶端整合範例
+│   ├── SCHEMA.md                       # Colyseus Runtime Schema + SQLite DDL 完整定義
 │   └── ARCH.md                         # 本文件
 │
 ├── infra/
