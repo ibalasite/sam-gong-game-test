@@ -1,0 +1,18 @@
+{
+  "version": "2.0",
+  "project_dir": "/Users/tobala/projects/sam-gong-game",
+  "brd_path": "docs/BRD.md",
+  "current_step": "0",
+  "lang_stack": "",
+  "client_type": "none",
+  "auto_mode": "full",
+  "review_mode": "MODE-C",
+  "execution_mode": "full-auto",
+  "review_strategy": "tiered",
+  "review_strategy_custom": "",
+  "log_file": "",
+  "github_repo": "",
+  "completed_steps": [],
+  "conflict_resolutions": [],
+  "last_updated": "2026-04-21T02:45:31Z"
+}
