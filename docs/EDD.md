@@ -187,21 +187,17 @@ async onLeave(client: Client, consented: boolean) {
   const player = this.state.players.get(client.sessionId);
   if (!player) return;
 
+  // 必須在設定 "disconnected" 之前儲存原始狀態，以便重連後正確恢復
+  const statusBeforeDisconnect = player.status; // e.g. "deciding", "called", "folded"
   player.status = "disconnected"; // 廣播給其他玩家顯示「離線」
 
   if (!consented && this.state.roomPhase !== "lobby") {
-    // 記錄斷線前的狀態，以便重連後正確恢復
-    const statusBeforeDisconnect = player.status !== "disconnected"
-      ? player.status
-      : "waiting";
     try {
       // 等待 60 秒重連（AC-012-1）
       await this.allowReconnection(client, 60);
       // 重連成功（AC-012-2）：恢復斷線前的狀態（非一律 "deciding"）
-      // 例：betting 階段斷線 → 恢復 "deciding"；reveal/settling 斷線 → 恢復原狀態
-      player.status = statusBeforeDisconnect !== "disconnected"
-        ? statusBeforeDisconnect
-        : "waiting";
+      // 例：betting 階段斷線 → 恢復 "deciding"；reveal/settling 斷線 → 恢復 "called"
+      player.status = statusBeforeDisconnect;
     } catch {
       // 60s 超時（AC-012-3）
       if (player.status === "disconnected") {
