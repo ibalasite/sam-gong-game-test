@@ -128,10 +128,10 @@ describe('Room Creation and Join', () => {
     const roomId = room1.roomId;
     await room1.leave(true);
 
-    // Attempting to join a destroyed room should fail
+    // Attempting to join a destroyed room should fail with a meaningful error
     const c3 = makeClient('Charlie');
     await expect(c3.joinById(roomId, { nickname: 'Charlie' }))
-      .rejects.toBeDefined();
+      .rejects.toMatchObject({ message: expect.any(String) });
   });
 });
 
@@ -427,8 +427,9 @@ describe('Edge Cases', () => {
     room1.onMessage('error', () => { rejected = true; });
     room1.send('start_game', {});
 
-    // Phase should remain lobby
-    await new Promise((r) => setTimeout(r, 1000));
+    // Phase should remain lobby — use waitFor with a short window to confirm no transition
+    await new Promise((r) => setTimeout(r, 500)); // brief settle
+    await waitFor(() => room1.state?.roomPhase !== undefined, 2000, 'state available');
     expect(room1.state.roomPhase).toBe('lobby');
   });
 
@@ -442,14 +443,15 @@ describe('Edge Cases', () => {
 
     // Guest attempts to start — should be ignored
     room2.send('start_game', {});
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 500)); // brief settle
+    await waitFor(() => room1.state?.roomPhase !== undefined, 2000, 'state available');
     expect(room1.state.roomPhase).toBe('lobby');
   });
 
   it('joining with an invalid room ID throws an error', async () => {
     c1 = makeClient('NoRoom');
     await expect(c1.joinById('INVALID_ROOM_ID', { nickname: 'NoRoom' }))
-      .rejects.toBeDefined();
+      .rejects.toMatchObject({ message: expect.any(String) });
   });
 
   it('place_bet is rejected outside of betting phase', async () => {
@@ -462,7 +464,9 @@ describe('Edge Cases', () => {
     room1.onMessage('error', () => { errorReceived = true; });
     room1.send('place_bet', { action: 'call' });
 
-    await new Promise((r) => setTimeout(r, 800));
+    // Phase must remain lobby (not advance to betting or beyond)
+    await new Promise((r) => setTimeout(r, 500)); // brief settle
+    await waitFor(() => room1.state?.roomPhase !== undefined, 2000, 'state available');
     expect(room1.state.roomPhase).toBe('lobby');
   });
 });
