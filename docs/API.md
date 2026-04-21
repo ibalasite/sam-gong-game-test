@@ -330,7 +330,7 @@ room.onMessage("error", (data: ErrorPayload) => {
 | 4003 | UNAUTHORIZED | Sender lacks required role (not host / not banker) | Silent ignore; log to console |
 | 4004 | WRONG_PHASE | Action not permitted in current phase | Silent ignore; log to console |
 | 4005 | INSUFFICIENT_CHIPS | `player.chips < betAmount` when calling | Show "籌碼不足，無法跟注" toast; disable Call button |
-| 4006 | INVALID_BET | `betAmount` not in `{10, 20, 50, 100}` | Silent ignore; revert UI to previous selection |
+| 4006 | INVALID_PARAM | Invalid parameter value: `betAmount` not in `{10, 20, 50, 100}`, or fewer than 2 players when starting | Silent ignore; revert UI to previous selection |
 | 4007 | INVALID_ACTION | Unknown `action` string in `player_action` | Silent ignore; log to console |
 
 ---
