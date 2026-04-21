@@ -88,6 +88,13 @@
 | 狀態 | 視覺描述 | 資源命名 |
 |------|---------|---------|
 | 面朝下（face-down）| 深藍色背面圖案（像素菱形紋）；顯示背面圖示 | `card_back.png` |
+
+**`card_back.png` 設計規格（供美術參考）：**
+- 底色：`#0D2137`（深海藍）
+- 菱形紋路顏色：`#1E3A5F`（較亮深藍），8px × 8px 重複 tile，45° 旋轉像素菱形
+- 邊框：2px 寬 `#D4AF37`（金色）內嵌 4px，四角圓弧 4px
+- 中央 Logo：16×16pt 像素藝術「三公」文字 mark，顏色 `#D4AF37`
+- 整體風格：像素藝術（pixel art），與遊戲整體美術風格一致
 | 面朝上 — 數字牌（2–9）| 白色牌面（`#FEFEFE`）；左上/右下角顯示點數 + 花色；中央大花色符號 | `card_[suit]_[value].png` |
 | 面朝上 — 人頭牌（10/J/Q/K）| 白色牌面；像素人物插圖；10/J/Q/K 字樣；此牌計分為 0 點 | `card_[suit]_[face].png` |
 | 面朝上 — A 牌 | 白色牌面；大 A 字樣；計分為 1 點 | `card_[suit]_a.png` |
@@ -206,7 +213,15 @@
 - 滑桿數值範圍：`[min_bet, max_bet]`，min/max 值由 Server Room State 提供，Client 不硬編碼
 - 下注確認後發送 `banker_bet { amount }` 訊息至 Server
 - Call 不傳送金額（由 Server 從 `banker_bet_amount` 讀取）
-- 下注金額不得超過玩家當前 `chip_balance`（Client 端顯示提示，最終驗證由 Server 執行）
+- 下注金額不得超過玩家當前 `chip_balance`（最終驗證由 Server 執行）
+
+**下注金額驗證回饋 (Bet Validation Feedback):**
+- 若 slider 值 > `chip_balance`：
+  - Slider thumb 自動 clamp 至 `chip_balance`
+  - Slider 軌道變紅色（`#C0392B`）
+  - Inline 錯誤標籤顯示於 Slider 下方（i18n: `errors.bet_exceeds_balance`，文字：「下注金額超過您的籌碼餘額」，紅色 `#C0392B`，12pt）
+  - 確認按鈕 disabled（灰色 opacity 0.5）
+- 恢復正常：slider 值 ≤ chip_balance → 標籤消失，按鈕恢復 enabled
 
 ---
 
@@ -573,6 +588,29 @@
 
 **行為規格補充（REQ-013 AC-5）：** 免責聲明文字「本遊戲為娛樂性質，虛擬籌碼無任何真實財務價值」須固定於 SCR-005 畫面底部，使用 12pt 最小字號，顏色 `#7F8C8D`，任何設定下不可隱藏。
 
+#### 私人房間建立/加入流程 (Private Room Flow)
+
+**建立私人房間：**
+1. 點擊「建立房間」→ Server 建立房間並回傳 Room ID（格式：6 位大寫英數字，例：`ABCD12`）
+2. 顯示「房間建立成功」Modal：
+   - 房間 ID 大字顯示（24pt，`#D4AF37` 金色）
+   - 「複製 ID」按鈕 → `cc.sys.copyTextToClipboard(roomId)`，Toast: `locale.room.id_copied`
+   - 「開始等待」按鈕 → 進入 SCR-006 等待畫面
+3. Room ID 有效期：本局結束後自動失效
+
+**加入私人房間：**
+- Room ID 輸入欄：最大 6 字元，僅接受大寫英數字（即時轉大寫）
+- 輸入完整 6 碼後自動嘗試加入（或手動點「加入」按鈕）
+- 加入失敗：Inline 紅色錯誤標籤（`errors.room_not_found`）
+- 加入成功：進入 SCR-006 等待畫面
+
+#### SCR-005 Error States（錯誤狀態）
+
+| 錯誤情境 | 顯示方式 | i18n Key | 說明 |
+|---------|---------|---------|------|
+| 房間已滿 | Toast，顯示 3s 後消失 | `errors.room_full` | 「此房間已滿，請選擇其他房間」 |
+| 無效房間 ID | Inline 紅色錯誤標籤，顯示於 Room ID 輸入欄下方 | `errors.room_not_found` | 「找不到此房間，請確認 ID 是否正確」|
+
 ---
 
 ### SCR-006：Matchmaking Waiting（配對等待）
@@ -679,6 +717,14 @@
 3. `showdown` phase：顯示最終底池值（不再更新）
 4. `settled` phase：Settlement overlay 覆蓋後，底部數值更新為本局最終抽水額（來自 `settlement.rake_amount`）
 
+#### 籌碼餘額顯示來源 (Chip Balance Data Source)
+
+SCR-007 底部玩家資訊列中的「籌碼：N」來源：
+1. **進房時**：從 Colyseus Room State `players[self_seat_index].chip_balance` 初始化
+2. **即時更新**：監聽 Room State `onChange` 事件，`chip_balance` 欄位變更時立即更新顯示
+3. **斷線重連期間**：顯示最後已知值，加灰色覆蓋層（opacity 0.5）表示數據可能過期
+4. **結算後**：Room State 廣播 settlement 結果，`chip_balance` 更新後移除灰色覆蓋層
+
 **底部操作區（互斥顯示）：**
 
 【banker-bet phase 底部操作區】
@@ -688,6 +734,16 @@
 - 僅顯示 CMP-005（Call / Fold 按鈕）；CMP-004（Bet Slider）隱藏
 
 > 注意：以上兩個操作區在任意時間點只有一個 active；非本玩家回合時（他人操作中）兩者均隱藏；waiting / dealing / showdown / settled phase 時兩者均隱藏。
+
+---
+
+#### SCR-007 Error States（錯誤狀態）
+
+| 錯誤情境 | 顯示方式 | i18n Key | 後續行為 |
+|---------|---------|---------|---------|
+| 被踢出房間 | 全螢幕 Overlay，含確認按鈕 | `errors.kicked_from_room` | 點擊確認 → 導向 SCR-004 |
+| JWT Token 過期 | 自動嘗試 Token Refresh；失敗則 Toast + 跳轉登入 | `errors.session_expired` | Refresh 失敗 → 導向 SCR-001（登入頁）|
+| 伺服器錯誤 | Toast，3s 自動消失 | `errors.server_error` | 「伺服器發生錯誤，請稍後再試」|
 
 ---
 
@@ -800,6 +856,23 @@
 **進度指示器規格：**
 - 教學共 5 步：步驟 1a（1/5 規則說明）→ 步驟 1b（2/5 籌碼系統）→ 步驟 3 模擬局 1（3/5）→ 步驟 4 模擬局 2（4/5）→ 步驟 5 模擬局 3（5/5）→ 完成頁
 - 進度顯示格式：「新手引導（N/5）」
+
+---
+
+#### Tutorial Script 固定腳本
+
+| 欄位 | 第 1 輪（3/5）| 第 2 輪（4/5）| 第 3 輪（5/5）|
+|------|------------|------------|------------|
+| **P0 手牌** | ♠K / ♥Q / ♣J = 三公（0 點，最高）| ♠5 / ♥4 / ♣6 = 15 mod 10 = **5 點** | ♠5 / ♥A / ♣K = 5+1+10=16 mod 10 = **6 點** |
+| **NPC 手牌** | ♦4 / ♣2 / ♥A = 4+2+1 = **7 點** | ♦2 / ♣A / ♥K = 2+1+10=13 mod 10 = **3 點** | ♦5 / ♣A / ♥K = 5+1+10=16 mod 10 = **6 點** |
+| **莊家** | P0（教學中 P0 固定為莊家）| P0 | P0 |
+| **莊家下注** | 100 籌碼 | 100 籌碼 | 100 籌碼 |
+| **NPC 下注** | 100 籌碼（跟注）| 100 籌碼（跟注）| 100 籌碼（跟注）|
+| **結算** | P0 勝（三公最高），獲得 100 籌碼淨利 | P0 勝（5 > 3），獲得 100 籌碼淨利 | 平手（`tutorial_force_tie: true`），雙方退注，net_chips = 0 |
+| **重點教學** | 三公介紹（3 張花牌 = 最高手牌）| 普通點數比較規則 | D8 tiebreaker 規則說明，最終平手概念 |
+| **Tooltip i18n keys** | `tutorial.round1.intro`、`tutorial.round1.sam_gong_explain`、`tutorial.round1.win` | `tutorial.round2.points_explain`、`tutorial.round2.win` | `tutorial.round3.tie_explain`、`tutorial.round3.d8_explain`、`tutorial.round3.result_tie` |
+
+> **第 3 輪說明：** 兩方均為 6 點，教學系統設定 `tutorial_force_tie: true`，Tutorial Narration 逐步說明 D8 tiebreaker（Step1: 最高牌花色比較；Step2: 最高牌點數比較），最終宣告「平手」作為教學示範，讓玩家理解平手退注概念。此為固定劇本，不代表真實牌局中相同手牌必然觸發平手。
 
 ---
 
@@ -1016,6 +1089,20 @@
 - 關閉按鈕（右上角）：44×44pt；點擊後面板滑出返回 SCR-007
 - 舉報按鈕：長按聊天氣泡出現「⚑ 舉報」選項；觸控熱區 44×44pt（符合 P3 原則）
 - 斷線重連後不推送歷史訊息（Server 不儲存聊天記錄）
+- **v1.0 Chat only supports text input (max 50 characters). Emoji/quick-phrase to be added in v2.0.**
+
+#### SCR-011 Report Flow（舉報流程）
+
+1. **長按訊息氣泡** → Bottom Sheet 出現（0.2s slide up），包含：
+   - 「舉報此訊息」(Report) 按鈕
+   - 「封鎖此玩家」(Block) 按鈕
+   - 「取消」(Cancel) 按鈕
+2. **點擊「舉報此訊息」** → 舉報原因選擇器（單選）：
+   - i18n keys: `chat.report_reason.spam`、`chat.report_reason.harassment`、`chat.report_reason.inappropriate`、`chat.report_reason.cheating`、`chat.report_reason.other`
+3. **確認按鈕** → 送出 `report_player { target_id: string, message_id: string, reason: string }` 至 Server
+4. **成功**：Toast `locale.chat.report_success`（「舉報已提交，謝謝您的回報」）
+5. **失敗**：Toast `locale.errors.server_error`
+6. **Emoji picker**：v2.0 deferred（不在 v1.0 scope）；**Quick-phrase 按鈕**：v2.0 deferred
 
 ---
 
@@ -1123,9 +1210,34 @@
 - 減少動畫開關：開啟後，計時緊急（≤5s）畫面震動改為 Timer Bar 顏色閃爍（紅色 `#C0392B` 閃爍 0.2s 間隔）；遵循 WCAG 2.3.3 前庭覺敏感設計指引（F19）
 - 設定值儲存至本機（Cocos Creator 本地存儲）及 Server 使用者設定檔
 
+**音訊設定持久化：**
+- 本地儲存：`cc.sys.localStorage.setItem('user_settings_audio', JSON.stringify({music: 70, sfx: 80, vibration: true}))`（預設值 music=70，sfx=80）
+- 伺服器同步：設定更改後 debounce 2s 後呼叫 `PUT /api/v1/player/settings`，payload: `{music_volume: N, sfx_volume: N, vibration: boolean}`
+- 設定讀取優先級：(1) REST API 回應 → (2) localStorage 快取 → (3) 預設值
+
 ---
 
 ## 6. Animation Specifications（動畫規格）
+
+### 6.0 畫面轉場動畫 (Screen Transition Animations)
+
+| 轉場 | 動畫類型 | 時長 | Easing |
+|------|---------|------|--------|
+| SCR-001 → SCR-002 | Fade Out / Fade In | 0.4s | Linear |
+| SCR-002 → SCR-003 | Slide Left | 0.25s | ease-out |
+| SCR-003 → SCR-004 | Fade Out / Fade In | 0.3s | Linear |
+| SCR-004 → SCR-005 | Slide Left | 0.25s | ease-out |
+| SCR-005 → SCR-006 | Slide Left | 0.25s | ease-out |
+| SCR-006 → SCR-007 | Fade Out / Fade In | 0.4s | Linear |
+| SCR-007 → SCR-004 (離開) | Fade Out / Fade In | 0.3s | Linear |
+| 返回（任意） | Slide Right | 0.25s | ease-in |
+| Overlay Push (SCR-009/011/012) | Fade In + Slide Up | 0.2s | ease-out |
+| Overlay Dismiss | Fade Out + Slide Down | 0.15s | ease-in |
+| SCR-004 → SCR-013/014/015 | Slide Left | 0.25s | ease-out |
+
+`UIManager.navigateTo(scene, transition)` 方法 — 統一管理所有轉場，避免個別場景自行實作動畫。
+
+---
 
 ### 6.1 Phase 轉換動畫總覽
 
@@ -1233,7 +1345,51 @@
 
 ---
 
-### 6.8 動畫效能約束（Performance Budget）
+### 6.8 音效規格 (Audio Specification)
+
+**SFX 資產清單：**
+
+| Asset Name | Trigger Event | Duration | Notes |
+|-----------|--------------|----------|-------|
+| sfx_card_deal.mp3 | 發牌動畫每張牌落下 | 0.3s | pitch 略不同每張增加沉浸感 |
+| sfx_card_flip.mp3 | showdown 翻牌 | 0.2s | 每張牌翻面一次 |
+| sfx_chip_collect.mp3 | settlement chips 動畫 | 0.5s | 贏家才播放 |
+| sfx_win_jingle.mp3 | 本玩家 win result | 1.5s | 全螢幕特效時播放 |
+| sfx_sam_gong_fanfare.mp3 | 三公出現（任意玩家）| 2.0s | 最高優先級打斷其他音效 |
+| sfx_lose.mp3 | 本玩家 lose result | 0.8s | |
+| sfx_button_click.mp3 | 所有按鈕 tap | 0.05s | 輕觸回饋 |
+| sfx_timer_urgent.mp3 | 計時器剩餘 ≤ 5s | 0.3s 循環 | 每秒播放一次 |
+| bgm_lobby.mp3 | SCR-004 大廳 | 循環 | 低音量背景音樂 |
+| bgm_game.mp3 | SCR-007 遊戲中 | 循環 | 緊張節奏背景音樂 |
+
+**Cocos Creator AudioSource 架構：**
+- 掛載 `AudioManager` 節點（常駐不銷毀）
+- `bgmSource: AudioSource` 播放背景音樂
+- `sfxSource: AudioSource[]` 池大小 = 4（支援最多 4 個同時音效）
+- volume 受 SCR-015 設定值控制（0.0~1.0）
+- `cc.AudioSource.play()` / `cc.AudioSource.pause()` 方法
+
+**音效優先級：**
+- `sfx_sam_gong_fanfare` > `sfx_win_jingle` > 其他 sfx
+- 同優先級先到先播，sfx pool 空時最舊的停止
+
+---
+
+### 6.9 莊家輪換皇冠動畫 (Banker Crown Transition Animation)
+
+當 Room State `banker_seat_index` 改變（在 `waiting` phase 開始時）：
+
+1. 舊莊家皇冠：Fade Out (0.2s linear) + 縮小至 0.5×（0.2s ease-in）
+2. 同時：「新莊家：{玩家名稱}」橫幅從桌面頂部中央淡入（0.3s ease-out），停留 1.5s 後淡出（0.3s）
+   - i18n key: `game.new_banker_banner` = `'新莊家：{name}'`
+   - 橫幅樣式：`#D4AF37` 金色文字，半透明深色底框，24pt
+3. 新莊家皇冠：延遲 0.1s 後 Scale 0→1 + Fade In（0.3s ease-out），位置：玩家頭像正上方
+4. 皇冠資產：`fx_crown_appear.anim`（Cocos Creator Spine 動畫 或 SpriteFrame 序列）
+5. 音效：`sfx_button_click.mp3`（暫代，v2.0 可替換為專屬皇冠音效）
+
+---
+
+### 6.10 動畫效能約束（Performance Budget）
 
 | 動畫類型 | 時長上限 | 基準裝置幀率目標 |
 |---------|---------|--------------|
@@ -1342,7 +1498,7 @@
 
 ### 8.3 `locale/zh-TW.json` 結構（完整命名空間）
 
-頂層命名空間清單：`game`、`settlement`、`tutorial`、`anti_addiction`、`rescue_chips`、`lobby`、`matchmaking`、`settings`、`accessibility`、`errors`
+頂層命名空間清單：`game`、`settlement`、`tutorial`、`anti_addiction`、`rescue_chips`、`lobby`、`matchmaking`、`settings`、`accessibility`、`chat`、`errors`
 
 ```json
 {
@@ -1403,7 +1559,10 @@
     "reduce_animation": "減少動畫",
     "reduce_animation_hint": "開啟後計時緊急以顏色閃爍代替震動",
     "replay_tutorial": "重播新手引導",
-    "cookie_management": "Cookie 同意管理"
+    "cookie_management": "Cookie 同意管理",
+    "music_volume": "背景音樂音量",
+    "sfx_volume": "音效音量",
+    "vibration_feedback": "振動回饋"
   },
   "accessibility": {
     "call_button": "跟注，下注金額 {amount} 籌碼",
@@ -1412,11 +1571,28 @@
     "avatar_banker": "{name}，莊家，籌碼 {balance}",
     "avatar_player": "{name}，閒家，籌碼 {balance}"
   },
+  "chat": {
+    "report_success": "舉報已提交，謝謝您的回報",
+    "input_placeholder": "輸入訊息（最多200字）",
+    "report_reason": {
+      "spam": "垃圾訊息",
+      "harassment": "騷擾行為",
+      "inappropriate": "不當內容",
+      "cheating": "作弊嫌疑",
+      "other": "其他"
+    }
+  },
   "errors": {
     "rate_limit": "操作過於頻繁，請稍後再試",
     "reconnecting": "連線中斷，正在重新連線... （嘗試 {attempt}/{max}）",
     "reconnect_failed": "重連失敗",
-    "otp_daily_limit_exceeded": "今日OTP請求已達上限，請於次日UTC+8 00:00後重試"
+    "otp_daily_limit_exceeded": "今日OTP請求已達上限，請於次日UTC+8 00:00後重試",
+    "bet_exceeds_balance": "下注金額超過您的籌碼餘額",
+    "room_full": "此房間已滿，請選擇其他房間",
+    "room_not_found": "找不到此房間，請確認 ID 是否正確",
+    "session_expired": "登入已過期，請重新登入",
+    "server_error": "伺服器發生錯誤，請稍後再試",
+    "kicked_from_room": "您已被移出房間"
   }
 }
 ```
@@ -1581,6 +1757,22 @@ room.state.settlement.winners.forEach((winner) => {
 
 ---
 
+### 10.6 效能預算 (Performance Budget)
+
+| 項目 | 規格 |
+|------|------|
+| GPU 紋理記憶體上限 | ≤ 128MB（基準裝置 2GB RAM 之 6.25%）|
+| SCR-007（遊戲中）最大 Draw Call | ≤ 80 |
+| Bundle 大小目標 — main bundle | ≤ 5MB（壓縮後）|
+| Bundle 大小目標 — tutorial 子包（懶加載）| ≤ 2MB |
+| 紋理壓縮格式 — Android | ETC2（RGBA8）；ASTC 4×4 若裝置支援 |
+| 紋理壓縮格式 — iOS | ASTC 4×4（fallback PVRTC）|
+| 目標幀率 | 60fps；降功耗模式 30fps（可在 SCR-015 設定中切換）|
+| 記憶體清理 — 離開 SCR-007 | `cc.resources.release()` 釋放遊戲 Atlas |
+| 記憶體清理 — 回到大廳 | 釋放遊戲音效資源 |
+
+---
+
 ## 11. Design↔PRD Traceability（設計需求追溯矩陣）
 
 | REQ-ID | 需求描述（摘要）| PDD 對應項目 | 對應說明 |
@@ -1599,7 +1791,7 @@ room.state.settlement.winners.forEach((winner) => {
 | REQ-014 | 帳號系統；OTP 年齡驗證 | SCR-002（Age Gate OTP）、SCR-004（帳號登入流程）、SCR-013（個人資料）| OTP 流程 ≤ 3 步驟；年齡驗證閘 100% 覆蓋 |
 | REQ-015 | 防沉迷系統；成人 2h 彈窗；未成年 2h 強制登出 | CMP-010（Anti-Addiction Overlay）、SCR-012（防沉迷彈窗）、SCR-013（每日遊玩時間顯示）| 兩種版本（成人可繼續 / 未成年強制停止）；必須明確點擊確認 |
 | REQ-016 | Cookie 同意橫幅（Web 限定）| SCR-003（Cookie Consent Banner）| 3 類 Cookie 分別同意；歐盟 IP 非 pre-checked；台灣 IP 告知式 |
-| REQ-017 | 反作弊；速率限制（Server 端，Client 顯示錯誤提示）| SCR-007 → 操作按鈕 Processing 狀態；錯誤 Toast 通知（rate_limit_error 顯示 Toast） | Client 顯示速率限制錯誤提示；不含反作弊邏輯 |
+| REQ-017 | 反作弊；速率限制（Server 端，Client 顯示錯誤提示）| SCR-007 → 操作按鈕 Processing 狀態；錯誤 Toast 通知（errors.rate_limit Toast） | Client 顯示速率限制錯誤提示；不含反作弊邏輯 |
 | REQ-019 | 個資刪除請求 | SCR-013（Profile/Account）→「刪除帳號」入口 | 帳號設定頁提供刪除入口；刪除確認對話框 |
 | REQ-020a | 每日免費籌碼（主動領取）+ 救濟機制 | SCR-004（領取今日籌碼按鈕）、CMP-010（救濟籌碼 Toast）、SCR-014（每日任務）| 大廳顯示「領取今日籌碼」按鈕；救濟為底部 Toast |
 | REQ-020b | 虛擬籌碼商店 IAP / 廣告（Should Have，條件啟用）| SCR-013 或 SCR-004 → 籌碼商店入口（UI 佔位；實際功能依法律意見書 2026-05-15 決定）| 籌碼商店入口已預留；不含 IAP 計算邏輯 |
