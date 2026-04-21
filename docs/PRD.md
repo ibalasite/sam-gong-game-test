@@ -10,7 +10,7 @@
 |------|------|
 | **DOC-ID** | PRD-SAM-GONG-GAME-20260421 |
 | **專案名稱** | 三公遊戲（Sam Gong 3-Card Poker）即時多人線上平台 |
-| **文件版本** | v0.3-draft |
+| **文件版本** | v0.11-draft |
 | **狀態** | DRAFT |
 | **作者** | Evans Tseng（由 /devsop-autodev STEP-03 自動生成） |
 | **日期** | 2026-04-22 |
@@ -27,6 +27,14 @@
 | v0.2-draft | 2026-04-21 | STEP-04 Review Round 1 | 17個問題修正（REQ-004 AC-3破產算法、REQ-013動畫時長矛盾、莊家機制補齊、REQ-021新增、REQ-012矛盾消除、NFR優先度、好友系統DEFERRED等）|
 | v0.3-draft | 2026-04-22 | STEP-04 Review Round 2 | 56個問題修正（F1~F56）：房間級距下注範圍更正、莊家破產先到先得算法、REQ-006/007/017~019新增、NFR-15/16新增、RTM補齊REQ-015/016/021/測試覆蓋欄位、REQ-020a/b拆分、合規REQ補強、架構邊界、DB事務隔離等）|
 | v0.3-draft | 2026-04-22 | STEP-04 Review Round 3 (24 Findings Fix) | 24個問題修正：F1(Fold底池修正)、F4(配對計時器一致化90秒)、F5(settlement ties陣列)、F6(RTM REQ-019)、F7(REQ-014 Dependencies方向修正)、F8(NFR-03組件99.9%+驗算)、F9(版本號v0.3-draft)、F10(REQ-011計時器AC-5)、F11(REQ-012 Tutorial劇本AC-5)、F12(REQ-015 AC-5轉設計說明)、F13(REQ-006淨籌碼收益AC-7)、F14(REQ-017 AC-2連續5局定義)、F15(NFR-10籌碼異常事件清單)、F16(NFR REST Rate Limit)、F19(§8.6 Graceful Degradation)、F20(REQ-020a冪等性)、F22(REQ-007聊天室AC-4/5/6)、F23(§8.2莊家零餘額行為)、F24(O6截止日更新) |
+| v0.4-draft | 2026-04-21 | STEP-04 Review Round 4 (24 fixes) | 房間級距、escrow時序、BRD RTM準備 |
+| v0.5-draft | 2026-04-21 | STEP-04 Review Round 5 (16 fixes) | Fold bet=0、matchmaking 90s、settlement schema |
+| v0.6-draft | 2026-04-21 | STEP-04 Review Round 6 (12 fixes) | REQ-014 deps、NFR-03 99.9%組件、S-020b |
+| v0.7-draft | 2026-04-21 | STEP-04 Review Round 7 (11 fixes) | escrow Step 2時序、all-fold banker net=0 |
+| v0.8-draft | 2026-04-21 | STEP-04 Review Round 8 (25 fixes) | Step 3 Call扣款、tutorial 3-round、BRD RTM填齊 |
+| v0.9-draft | 2026-04-21 | STEP-04 Review Round 9 (14 fixes) | §4a版本鎖定表、詐欺SOP、empty-pot guard |
+| v0.10-draft | 2026-04-21 | STEP-04 Review Round 10 (7 fixes) | 三公glossary、§8.1來源、成人2h測試向量 |
+| v0.11-draft | 2026-04-21 | STEP-04 Review Round 11 fix (this round) | F1~F10修正（BRD D15說明、NFR-17來源、REQ-006 AC-7、§8.6降級補充、O12欄位對齊、BRD §5.4邊緣情況、REQ-005 D15引用） |
 
 ---
 
@@ -241,7 +249,7 @@ As a **Casual Player**, I want the server to automatically calculate and distrib
 
 **Priority：** Should Have（v1.x Backlog，v1.0 DEFERRED）
 
-**Note：** 本REQ-ID保留給好友系統功能；v1.0依賴私人房間ID邀請（REQ-010 AC-4）作為替代方案。詳見§10 O5。
+**Note：** 本REQ-ID保留給好友系統功能；v1.0依賴私人房間ID邀請（REQ-010 AC-4）作為替代方案。詳見§10 O5。好友系統v1.0 DEFERRED決策見BRD Decision Log D15（2026-04-21）；v1.0不實作，保留至v1.x。
 
 ---
 
@@ -263,7 +271,7 @@ As a **Competitive Player**（林小姐）, I want to view weekly and monthly le
 5. 同籌碼收益平手決勝：依達成時間先後（先達成者排名較前）。
 6. 隱私選項：玩家可在帳號設定選擇「不顯示於排行榜」；選擇後從榜單中隱藏，不計入排名序號。
 7. 測試方法：模擬已知籌碼變動後驗證排行榜更新延遲（≤ 1 分鐘）及排序正確性（依淨收益降冪、同收益以時間先後）。
-8. 淨籌碼收益定義（AC-7）：本週（UTC+8週一00:00至週日23:59）內所有tx_type=game_win/game_lose的Transaction amount加總；daily_gift、rescue、iap、task_reward類型均不計入；同收益值平手決勝：依達成時間（最後一筆game_win記錄時間）先後；測試：預置已知遊戲交易序列，驗證排行榜排序與公式計算一致。
+8. 淨籌碼收益定義（AC-7）：本週（UTC+8週一00:00至週日23:59）內所有tx_type=game_win/game_lose的Transaction amount加總；daily_gift、rescue、iap、task_reward類型均不計入；同收益值平手決勝：依最早達成同淨收益值時的game_win記錄時間戳先後排序；相同淨收益時，較早達到該分數者（timestamp較小）排名較前，與AC-5「先達成者排名較前」保持一致；測試：預置已知遊戲交易序列，驗證排行榜排序與公式計算一致。
 
 **Out of Scope：** 好友榜（v1.x）；即時榜（毫秒級更新）。
 
@@ -647,7 +655,7 @@ As a **Returning Player**, I want to optionally purchase more chips or watch ads
 | NFR-14 | 連線可靠性 | Colyseus WebSocket 心跳與重連 | ping/pong ≤ 10 秒；斷線後自動重連最多 3 次（退避 1/2/4 秒）；超 30 秒觸發斷線行為處理 | Playwright + 網路節流模擬測試 | Must | Eng Lead |
 | NFR-15 | 安全：WebSocket速率限制 | 每個WebSocket連線每秒消息數上限；單條消息最大payload；超限觸發速率限制 | 每連線每秒 ≤ 10條消息；單條消息 ≤ 4KB payload；超限返回rate_limit error；持續違規帳號臨時斷線30秒冷卻 | 壓測工具模擬高頻消息攻擊；驗證超限後正確返回error且連線冷卻 | Must | Eng Lead |
 | NFR-16 | 效能：資料庫查詢延遲 | PostgreSQL查詢延遲；Redis操作延遲；連線池管理；Circuit Breaker策略：連線池耗盡後啟動30秒Circuit Breaker（返回HTTP 503 + Retry-After:30頭）；30秒後進入Half-Open：允許10%請求通過探測恢復；完全恢復條件：P95查詢延遲恢復至≤50ms持續60秒；若Circuit Breaker實作延至v1.x，在Decision Log中記載（含風險說明） | PostgreSQL P95查詢延遲 ≤ 50ms；Redis P95操作延遲 ≤ 5ms；連線池最大連線數：500 CCU下至少50個DB連線；連線池耗盡返回HTTP 503 + Retry-After:30頭 | APM監控（如Datadog / Grafana）；壓測下P95延遲驗證 | Must | Eng Lead + SRE |
-| NFR-17 | 安全：Session Token（來源：BRD §9合規安全要求 + BRD R4帳號安全風險）| JWT 存取 Token 有效期 ≤ 1 小時；Refresh Token 有效期 ≤ 7 天；帳號封鎖後所有活躍 Token ≤ 1 分鐘失效（Server 端短效 Token 強制刷新）；簽名演算法：RS256 或 ES256（禁止 HS256）；測試：封號後 60 秒內嘗試已發 Token 操作返回 HTTP 401 | 封號後 Token 失效 ≤ 60 秒；Token 長度符合演算法規格 | 封號流程測試 + Token 驗證 | Must | Eng Lead |
+| NFR-17 | 安全：Session Token（來源：BRD §9合規安全要求 + BRD R10 KYC/個資外洩安全風險）| JWT 存取 Token 有效期 ≤ 1 小時；Refresh Token 有效期 ≤ 7 天；帳號封鎖後所有活躍 Token ≤ 1 分鐘失效（Server 端短效 Token 強制刷新）；簽名演算法：RS256 或 ES256（禁止 HS256）；測試：封號後 60 秒內嘗試已發 Token 操作返回 HTTP 401 | 封號後 Token 失效 ≤ 60 秒；Token 長度符合演算法規格 | 封號流程測試 + Token 驗證 | Must | Eng Lead |
 | NFR-18 | 可用性：DB Failover（來源：BRD NFR-13備份還原 + BRD NFR-03可用性SLA）| PostgreSQL 採主從熱備援（streaming replication）；自動 failover 觸發：主節點不可用 60 秒後；服務恢復目標 ≤ 5 分鐘（計入 NFR-03 SLA）；Redis 採 Sentinel 模式；季度 failover 演練，記錄實際恢復時間 | 服務恢復時間 ≤ 5 分鐘 | 季度 failover 演練（實際恢復測試通過）| Must | SRE |
 | NFR-19 | 安全：REST API Rate Limit（來源：BRD §9.4詐欺防制 + BRD R2外掛風險）| REST API端點Rate Limit：(1)認證端點（/auth/*）：每IP每分鐘≤30次；(2)/player/daily-chip及/tasks/{id}/complete：每帳號每日限1次（AC層面已定義，NFR層面確認）；(3)一般API端點：每用戶每分鐘≤120次（2次/秒）；(4)IP全局Rate Limit：每IP每秒≤100次請求；超限返回HTTP 429 | 各端點超限返回HTTP 429 | 壓測工具模擬超限請求；驗證返回429及各限制正確執行 | Must | Eng Lead |
 
@@ -998,11 +1006,14 @@ Step 6: 三步驟結算（原子性執行，見 §5.3）
 
 ### 8.6 Graceful Degradation策略
 
-| 情境 | 降級行為 |
-|------|---------|
-| Redis不可用 | 暫停新配對請求（返回HTTP 503），現有Colyseus房間繼續運作（Room State在記憶體中）；新配對恢復待Redis可用後自動恢復 |
-| PostgreSQL主節點failover期間（最長5分鐘per NFR-18） | 暫停新局開始，現有局繼續但不持久化直至DB恢復；恢復後批次補寫 |
-| 籌碼守恆失敗 | 立即回滾結算事務，所有玩家維持結算前狀態，SRE通報（per REQ-004 AC-2）；寫入CRITICAL log含game_id和差異金額 |
+| 情境 | 降級行為 | 告警方式 |
+|------|---------|---------|
+| Redis不可用 | 暫停新配對請求（返回HTTP 503），現有Colyseus房間繼續運作（Room State在記憶體中）；新配對恢復待Redis可用後自動恢復 | SRE告警 |
+| PostgreSQL主節點failover期間（最長5分鐘per NFR-18） | 暫停新局開始，現有局繼續但不持久化直至DB恢復；恢復後批次補寫 | SRE告警 |
+| 籌碼守恆失敗 | 立即回滾結算事務，所有玩家維持結算前狀態，SRE通報（per REQ-004 AC-2）；寫入CRITICAL log含game_id和差異金額 | SRE告警 |
+| SMS/OTP服務不可用 | 暫停新帳號OTP驗證；已驗證帳號正常遊戲；服務恢復後補發 | SRE告警 |
+| KYC服務不可用 | 新帳號驗證降級至純OTP方案（待Legal確認）；現有帳號不受影響 | SRE告警 |
+| AdMob SDK不可用 | 停用廣告獎勵功能；顯示「廣告暫時不可用，請稍後再試」 | 靜默降級 |
 
 ---
 
@@ -1121,7 +1132,7 @@ Web 首次載入：
 | O9 | 多語系支援（英文 / 簡中）：v1.0 Out of Scope | v1.x PRD | PM | v1.x 計畫確認後 | DEFERRED |
 | O10 | 第二品類（大老二 / 21 點）：O4 目標，v1.x 以後 | v2.0 PRD | PM + Game Designer | 2027-08-21 | DEFERRED |
 | O11 | 聊天室關鍵字過濾清單初始版本（由 Ops 維護，存放 `/docs/content-policy/`）| REQ 聊天室（Could Have，v1.0 不確定是否啟用）| Ops | 聊天室功能上線前 | OPEN |
-| O12 | 詐欺防制通報機制（§9.1a）threshold.yaml與Ops工作流規格確認 | Legal + Ops | 2026-08-21（GA前）| OPEN |
+| O12 | 詐欺防制通報機制（§9.1a）threshold.yaml與Ops工作流規格確認 | REQ-017合規延伸、§9.1a詐欺防制SOP | Legal + Ops | 2026-08-21（GA前）| OPEN |
 
 ---
 
