@@ -165,7 +165,7 @@
 |---------|---------|---------------------|---------|------|
 | O1：Server authoritative 公平性 | Server 權威計算 100%、0 P0 Cheat Bug | REQ-001（洗牌）、REQ-002（發牌）、REQ-003（比牌）、REQ-004（結算）、REQ-013（UI動畫）、REQ-017（反作弊） | BDD S-001~S-004, S-013, S-017; IT-anticheat-001 | ✅ PRD已對應 |
 | O2：CCU 規模 | Peak CCU ≥ 500 | REQ-010（配對）、REQ-011（房間狀態）、REQ-012（新手引導）、REQ-020a（每日贈送）、REQ-021（每日任務） | Load Test L-001; BDD S-010, S-011, S-012, S-020a, S-021 | ✅ PRD已對應 |
-| O2 | 新手引導完成率 ≥ 60%（§7） | REQ-012 Tutorial, REQ-010, REQ-011 | BDD Scenario S-012 | ✅ PRD已對應 |
+| O2 | 新手引導完成率 ≥ 60%（§5.3 MoSCoW） | REQ-012 Tutorial, REQ-010, REQ-011 | BDD Scenario S-012 | ✅ PRD已對應 |
 | O2（留存/社群） | 週榜活躍玩家數≥500人（提案值，2026-05-15前確認） | REQ-006（排行榜） | UT/IT: IT-rank-001; BDD S-006（STEP-15回填） | 🔲 待填 |
 | O2（社群參與） | 每房間每小時訊息≥1,000則（提案值，2026-05-15前確認） | REQ-007（聊天室） | UT/IT: IT-chat-001; BDD S-007（STEP-15回填） | 🔲 待填 |
 | O3：變現 | ARPPU ≥ USD 10 | REQ-020b（Should Have，IAP/廣告） | BDD S-020b（REQ-020b IAP/廣告）| ✅ PRD已對應 |
@@ -279,7 +279,7 @@
 | 排行榜 | Could Have | O2 | 1. 排行榜數據更新延遲 ≤ 1 分鐘；2. 支援週榜/月榜切換 |
 | 聊天室（房間內）**【F15 合規備注】** 含關鍵字過濾、舉報機制、訊息留存 30 日 | Could Have | O2 | 1. 敏感關鍵字過濾覆蓋率 ≥ 95%；2. 舉報後 24 小時內審核處理 |
 | **VIP 訂閱系統（F13）** | **Won't Have（v1.0）**（Out of Scope，v1.x Backlog（無v1.0 REQ-ID，待v1.x PRD分配）） | O3 | N/A（v1.0 不實作；功能描述：VIP月費 USD 9.99；權益包含每日額外籌碼獎勵 +50%、VIP 頭像框、優先配對；列入 v1.x Backlog） |
-| Cookie 同意橫幅（Web 平台）| Must Have | 法規合規（§9）| 1. Web 首次載入顯示 Cookie 同意橫幅；2. 必要/分析/行銷 Cookie 三類分別取得同意；3. 同意紀錄含時間戳+版本號，保留 3 年；4. 歐盟 IP（CloudFlare CF-IPCountry偵測）觸發 GDPR opt-in（非 pre-checked）；5. 用戶可隨時撤回同意（帳號設定頁）|
+| Cookie 同意橫幅（Web 平台）| Must Have | O合規（§9合規）| 1. Web 首次載入顯示 Cookie 同意橫幅；2. 必要/分析/行銷 Cookie 三類分別取得同意；3. 同意紀錄含時間戳+版本號，保留 3 年；4. 歐盟 IP（CloudFlare CF-IPCountry偵測）觸發 GDPR opt-in（非 pre-checked）；5. 用戶可隨時撤回同意（帳號設定頁）|
 | 新手引導教學（Tutorial Onboarding）| Must Have | O2 | AC：首次登入玩家的教學完成率 ≥ 60%（Launch+1M量測，分母為當月首次登入帳號數）；教學包含：三公規則說明、**3輪固定劇本模擬牌局（詳見PRD REQ-012 AC-5）**（不消耗籌碼）、籌碼系統說明；完成後解鎖正式對戰入口；**模擬牌局邏輯由 Server 執行（tutorial_mode=true，籌碼扣除邏輯跳過）；Client 僅呈現動畫，與正式牌局相同 Server-authoritative 路徑** |
 | 多語系（英、簡中）| Won't Have（v1.0） | — | N/A |
 | 其他撲克品類 | Won't Have（v1.0） | O4 | N/A |
