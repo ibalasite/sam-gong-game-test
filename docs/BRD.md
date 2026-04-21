@@ -166,7 +166,7 @@
 | O1：Server authoritative 公平性 | Server 權威計算 100%、0 P0 Cheat Bug | REQ-001（洗牌）、REQ-002（發牌）、REQ-003（比牌）、REQ-004（結算）、REQ-013（UI動畫）、REQ-017（反作弊） | BDD S-001~S-004, S-013, S-017; IT-anticheat-001 | ✅ PRD已對應 |
 | O2：CCU 規模 | Peak CCU ≥ 500 | REQ-010（配對）、REQ-011（房間狀態）、REQ-012（新手引導）、REQ-020a（每日贈送）、REQ-021（每日任務） | Load Test L-001; BDD S-010, S-011, S-012, S-020a, S-021 | ✅ PRD已對應 |
 | O2 | 新手引導完成率 ≥ 60%（§7） | REQ-012 Tutorial, REQ-010, REQ-011 | BDD Scenario S-012 | ✅ PRD已對應 |
-| O2（留存/社群） | 週榜DAU≥500人（提案值，2026-05-15前確認） | REQ-006（排行榜） | UT/IT: IT-rank-001; BDD S-006（STEP-15回填） | 🔲 待填 |
+| O2（留存/社群） | 週榜活躍玩家數≥500人（提案值，2026-05-15前確認） | REQ-006（排行榜） | UT/IT: IT-rank-001; BDD S-006（STEP-15回填） | 🔲 待填 |
 | O2（社群參與） | 每房間每小時訊息≥1,000則（提案值，2026-05-15前確認） | REQ-007（聊天室） | UT/IT: IT-chat-001; BDD S-007（STEP-15回填） | 🔲 待填 |
 | O3：變現 | ARPPU ≥ USD 10 | REQ-020b（Should Have，IAP/廣告） | BDD S-020b（REQ-020b IAP/廣告）| ✅ PRD已對應 |
 | O4：品類擴展 | 1 個新品類 | （未來 PRD v2） | N/A | 🔲 待 v2 |
@@ -798,7 +798,7 @@ timeline
 | IDEA.md（原始需求）| docs/IDEA.md | ✅ 已生成 |
 | 背景研究摘要（§0）| BRD §0 | ✅ 已含入 |
 | 競品分析（§6）| BRD §6 | ✅ 已含入 |
-| RTM 初稿（§3.4）| BRD §3.4 | 🔲 待 PM 填 REQ-ID |
+| RTM 初稿（§3.4）| BRD §3.4 | ✅ 已完成 |
 | 技術限制清單（§8）| BRD §8 | ✅ 已含入 |
 | 風險清單（§10）| BRD §10 | ✅ 已含入 |
 
