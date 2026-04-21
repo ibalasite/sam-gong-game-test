@@ -1,3 +1,4 @@
+// TODO[REVIEW-DEFERRED]: Finding: Suit type is duplicated from shared/types.ts (type drift risk) | Severity: LOW | Cannot-fix reason: Client build system needs explicit shared path alias; safe to inline until monorepo import is configured | Source: STEP 20 Round 1
 export type Suit = 'spades' | 'hearts' | 'diamonds' | 'clubs';
 
 const SUIT_SYMBOLS: Record<Suit, string> = {

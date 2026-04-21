@@ -56,4 +56,27 @@ describe('settle', () => {
     expect(l.chipsChange).toBe(-50);
     expect(b.chipsChange).toBe(0); // net: -50 from winner + 50 from loser = 0
   });
+
+  it('results include finalChips and isBanker fields', () => {
+    const players = new Map([
+      ['p1', { cards: winnerCards, hasBet: true, isBanker: false, chips: 100 }],
+      ['banker', { cards: bankerCards, hasBet: true, isBanker: true, chips: 200 }],
+    ]);
+    const results = settle(players, 'banker', 50);
+    const p1 = results.find(r => r.sessionId === 'p1')!;
+    const bnk = results.find(r => r.sessionId === 'banker')!;
+    expect(p1.finalChips).toBe(150);
+    expect(p1.isBanker).toBe(false);
+    expect(bnk.finalChips).toBe(150);
+    expect(bnk.isBanker).toBe(true);
+  });
+
+  it('throws when bankerId is not in the players map', () => {
+    const players = new Map([
+      ['p1', { cards: winnerCards, hasBet: true, isBanker: false, chips: 100 }],
+    ]);
+    expect(() => settle(players, 'nonexistent', 50)).toThrow(
+      'Banker with sessionId "nonexistent" not found in players map'
+    );
+  });
 });

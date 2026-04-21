@@ -4,6 +4,10 @@ import { CardData } from '../../src/logic/deck';
 const card = (rank: string, suit = 'spades') => ({ suit, rank } as CardData);
 
 describe('calculatePoints', () => {
+  it('empty hand returns 0', () => {
+    expect(calculatePoints([])).toBe(0);
+  });
+
   it('A+A+A = 3', () => {
     expect(calculatePoints([card('A'), card('A'), card('A')])).toBe(3);
   });
@@ -68,7 +72,7 @@ describe('compareHands', () => {
       const makeHand = (p: number): CardData[] => {
         if (p === 0) return [card('J'), card('Q'), card('K')];
         if (p === 9) return [card('9'), card('9', 'hearts'), card('A', 'diamonds')];
-        return [card('A'), card(String(p > 2 ? p - 2 : 1) as never, 'hearts'), card('A', 'diamonds')];
+        return [card('A'), card(String(p > 2 ? p - 2 : 1) as string, 'hearts'), card('A', 'diamonds')];
       };
       const result = compareHands(makeHand(pts), makeHand(pts));
       expect(result).toBe('banker');

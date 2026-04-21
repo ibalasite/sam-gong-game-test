@@ -1,6 +1,8 @@
 import { Schema, type, MapSchema, ArraySchema, filter } from '@colyseus/schema';
 import { Client } from 'colyseus';
 
+// TODO[REVIEW-DEFERRED]: Finding: Suit/Rank/PlayerStatus/RoomPhase are duplicated from shared/types.ts (type drift risk) | Severity: LOW | Cannot-fix reason: tsconfig rootDir="./src" prevents direct relative imports of ../../shared/types; needs path alias or monorepo workspace config to resolve cleanly | Source: STEP 20 Round 1
+
 export type Suit = 'spades' | 'hearts' | 'diamonds' | 'clubs';
 export type Rank =
   | 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'

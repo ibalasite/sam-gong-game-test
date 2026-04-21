@@ -68,4 +68,16 @@ describe('dealCards', () => {
     dealCards(deck, 3);
     expect(deck).toEqual(original);
   });
+
+  it('throws when deck is too small for the number of players', () => {
+    const smallDeck = createDeck().slice(0, 5); // only 5 cards, need 6 for 2 players
+    expect(() => dealCards(smallDeck, 2)).toThrow(
+      'Deck has 5 cards but 6 are needed for 2 players'
+    );
+  });
+
+  it('throws when playerCount is less than 1', () => {
+    const deck = createDeck();
+    expect(() => dealCards(deck, 0)).toThrow('playerCount must be at least 1, got 0');
+  });
 });

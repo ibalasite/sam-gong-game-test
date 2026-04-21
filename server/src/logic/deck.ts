@@ -23,8 +23,17 @@ export function shuffle(deck: CardData[]): CardData[] {
 }
 
 export function dealCards(deck: CardData[], playerCount: number): CardData[][] {
+  if (playerCount < 1) {
+    throw new Error(`playerCount must be at least 1, got ${playerCount}`);
+  }
+  const cardsNeeded = playerCount * 3;
+  if (deck.length < cardsNeeded) {
+    throw new Error(
+      `Deck has ${deck.length} cards but ${cardsNeeded} are needed for ${playerCount} players`
+    );
+  }
   const hands: CardData[][] = Array.from({ length: playerCount }, () => []);
-  for (let i = 0; i < playerCount * 3; i++) {
+  for (let i = 0; i < cardsNeeded; i++) {
     hands[i % playerCount].push(deck[i]);
   }
   return hands;
