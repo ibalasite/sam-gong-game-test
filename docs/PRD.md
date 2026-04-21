@@ -42,6 +42,8 @@
 |--------|---------|------------|------------|----------------|
 | **O1** | 推出 Server-authoritative 公平三公多人遊戲；GA 目標 **2026-08-21**；Server 權威計算率 100%，Client 無任何結果計算邏輯 | REQ-001, REQ-002, REQ-003, REQ-004, REQ-017（反作弊） | BDD S-001~S-004, S-017（將於STEP-15 BDD文件生成後回填） | REQ-001: UT-shuffle-001（Fisher-Yates 分佈均勻性）；REQ-002: UT-deal-001（發牌三張正確性）；REQ-003: UT-compare-001（比牌向量測試集 ≥ 200）；REQ-004: IT-settlement-001（籌碼守恆並發測試）|
 | **O2** | 建立穩定同時在線（CCU）基礎；Peak CCU ≥ 500，DAU ≥ 2,000（**≤ 2027-02-21**） | REQ-010（配對）, REQ-011（房間狀態）, REQ-012（新手引導）, REQ-013（UI/動畫）, REQ-014（帳號驗證）, REQ-021 | BDD S-010~S-014, S-021（將於STEP-15 BDD文件生成後回填） | REQ-011: IT-roomstate-001（斷線重連狀態同步）；其他 BDD STEP-15 回填 |
+| **O2（留存/社群）** | 排行榜週榜活躍玩家數≥N | REQ-006（排行榜） | UT/IT: IT-rank-001 | BDD S-006（STEP-15回填） |
+| **O2（社群參與）** | 聊天訊息日均發送量≥N | REQ-007（聊天室） | UT/IT: IT-chat-001 | BDD S-007（STEP-15回填） |
 | **O3** | 建立虛擬籌碼變現模式（依法律意見書 2026-05-15 決定）；付費率 ≥ 3%（**≤ 2027-05-21**） | REQ-020a（Must Have）, REQ-020b（Should Have） | BDD S-020（將於STEP-15 BDD文件生成後回填） | STEP-15 回填 |
 | **O合規** | 防沉迷合規；Cookie同意；個資保護 | REQ-015（防沉迷）, REQ-016（Cookie同意）, REQ-019（個資刪除）, REQ-014（帳號驗證） | BDD S-014, S-015~S-016（將於STEP-15 BDD文件生成後回填） | STEP-15 回填 |
 | **O4** | 擴展遊戲品類（大老二、21 點等）；至少 1 個新品類上線（**≤ 2027-08-21**） | 未來 PRD v2 | N/A | N/A |
@@ -132,6 +134,8 @@ As a **Casual Player**（張先生）, I want the game deck to be shuffled on th
 - 洗牌種子日誌對外公開（v1.0 僅記錄於 Server DB，不對外開放）。
 
 **架構邊界約束（F35）：** Server遊戲邏輯（洗牌、比牌、結算）必須位於獨立server-only TypeScript package；Client build系統不得import此package；透過TypeScript project references強制邊界，CI lint規則驗證（違反則阻擋build）。
+
+**AC-7（架構邊界 CI 驗證）：** CI/CD pipeline 必須包含 TypeScript project references 邊界驗證步驟；若 Client package 成功 import server-only package 的遊戲邏輯模組，CI build 失敗（exit code 1）；工具：eslint no-restricted-imports rule 或 tsc --noEmit 驗證；Pass 條件：Client 端任何 import server-only 模組的嘗試均導致 CI build failure。
 
 **CI/CD安全管線（F50）：** CI/CD pipeline必須包含：(1) npm audit（高危阻擋合併）；(2) SAST（Semgrep）；(3) 容器鏡像漏洞掃描（Trivy）；(4) OSS License合規檢查；任一失敗阻擋部署。
 
@@ -250,7 +254,7 @@ As a **Competitive Player**（林小姐）, I want to view weekly and monthly le
 
 **Acceptance Criteria：**
 
-1. 排行榜資料更新延遲 ≤ 1 分鐘（從籌碼變動到榜單反映的端對端時間）。
+1. 排行榜資料更新延遲 ≤ 1 分鐘（從籌碼變動到榜單反映的端對端時間）。測試規格：使用 k6 或 Playwright 模擬；場景：觸發 ≥ 100 次已知籌碼變動事件；Pass 條件：P95（≥95次）的排行榜更新在 60 秒內反映；測試環境：非 CCU 壓測狀態下的 Staging 環境。
 2. 支援週榜 / 月榜切換；週榜每週一 00:00 UTC+8 重置；月榜每月1日 00:00 UTC+8 重置。
 3. 排行依據：週榜 = 本週淨籌碼收益；月榜 = 本月淨籌碼收益。
 4. 顯示 Top 100 名玩家。
@@ -276,12 +280,14 @@ As a **Casual Player**, I want to send messages in the game room so that I can c
 
 **Acceptance Criteria：**
 
-1. 敏感關鍵字過濾覆蓋率 ≥ 95%（測試方式：以100條含敏感詞測試訊息驗證過濾命中率）。
+1. 敏感關鍵字過濾覆蓋率 ≥ 95%（測試方式：以100條含敏感詞測試訊息驗證過濾命中率）。測試向量集維護：100條敏感詞測試訊息由Ops團隊維護，存放於/docs/content-policy/test-vectors.json，與關鍵字清單同目錄；Alpha驗收（2026-06-21）前完成初始版本；向量集更新需重新執行過濾驗證；版本號與關鍵字清單同步。
 2. 舉報後審核處理 SLA ≤ 24 小時（Ops人工審核）。
 3. 訊息留存 30 日後自動刪除。
 4. 單條聊天消息最大長度200字元（AC-4）；超長消息Server端拒絕並返回`{error:'message_too_long', max_chars:200}`；Client提前截斷顯示。
 5. 聊天消息Rate Limit（AC-5）：每玩家每秒≤2條；超限靜默丟棄（不提示），同一玩家超限累計3次觸發10秒冷卻。
 6. 斷線重連後不推送歷史消息（AC-6）；僅推送重連後的新消息（避免消息洪水）。
+
+**聊天訊息隱私合規（F12）：** (1) 30日自動刪除由定時任務執行，Ops監控執行率100%（SLA：每日驗證）；(2) 聊天訊息含player_id，屬個資法「間接識別」資料，適用NFR-11刪除義務（帳號刪除時聊天訊息隨帳號一併刪除或匿名化）；(3) 傳輸由TLS保護（引用NFR-04）。
 
 **Out of Scope：** 跨房間廣播；語音聊天；表情包。
 
@@ -570,7 +576,7 @@ As a **Returning Player**, I want to receive free chips daily and get an emergen
 
 ### REQ-020b：虛擬籌碼商店 IAP / 廣告模式（Virtual Chip Store — IAP or Ad Mode）
 
-> **注意：本需求AC編號從AC-3起，AC-1/AC-2屬REQ-020a範疇。**
+> **注意：本 REQ-020b 為獨立需求，AC 從 AC-1 起獨立編號（原AC-3/AC-4，已重新編號為獨立REQ-020b AC-1/AC-2）；REQ-020a 與 REQ-020b 共同構成完整的籌碼獲取需求，BDD 場景引用格式：REQ-020 BDD S-020a/S-020b。**
 
 **Feature Name：** 虛擬籌碼商店（IAP conditional + 廣告降級）
 
@@ -581,8 +587,8 @@ As a **Returning Player**, I want to optionally purchase more chips or watch ads
 
 **Acceptance Criteria：**
 
-3. **虛擬籌碼 IAP（條件啟用）：** 依法律意見書（2026-05-15 完成）決定；若 IAP 合法：啟用籌碼購買包（金額組合由 Game Designer 定義）；IAP 交易成功率 ≥ 99%；支付失敗退款流程 ≤ 24 小時；**若存在法律疑慮：IAP 停用，改用廣告模式**。
-4. **廣告降級模式（若 IAP 不可啟用）：** 使用 Google AdMob SDK；每次廣告獎勵 500 籌碼；每日廣告觀看上限 5 次；廣告播放完成率（已觀看廣告中完整觀看比例）≥ 80%（由 AdMob SDK 回傳確認）；DAU 廣告觀看人數 ≥ 20% DAU。
+1. **虛擬籌碼 IAP（條件啟用）（原AC-3，已重新編號為獨立REQ-020b AC-1）：** 依法律意見書（2026-05-15 完成）決定；若 IAP 合法：啟用籌碼購買包（金額組合由 Game Designer 定義）；IAP 交易成功率 ≥ 99%；支付失敗退款流程 ≤ 24 小時；**若存在法律疑慮：IAP 停用，改用廣告模式**。
+2. **廣告降級模式（若 IAP 不可啟用）（原AC-4，已重新編號為獨立REQ-020b AC-2）：** 使用 Google AdMob SDK；每次廣告獎勵 500 籌碼；每日廣告觀看上限 5 次；廣告播放完成率（已觀看廣告中完整觀看比例）≥ 80%（由 AdMob SDK 回傳確認）；DAU 廣告觀看人數 ≥ 20% DAU。
 
 **Out of Scope：**
 - 籌碼兌換現金或實體物品（明確禁止）。
@@ -606,7 +612,7 @@ As a **Returning Player**, I want to optionally purchase more chips or watch ads
 
 - AC-1: 每日至少提供 3 個可完成任務（範例：完成 3 場對戰、連續登入 7 日、完成教學）；任務列表每日 00:00 UTC+8 重置；每項任務獎勵下限為500籌碼（確保500-999邊緣情況玩家可透過單一任務恢復進入青銅廳所需1,000籌碼資格）。
 - AC-2: 每項任務完成後發放 500–2,000 籌碼獎勵；獎勵即時到帳（Server push），Client 顯示動畫提示。
-- AC-3: 任務完成率量測：Launch+3M 時 DAU 每日任務完成率 ≥ 40%。
+- AC-3: 任務完成率量測：Launch+3M 時 DAU 每日任務完成率 ≥ 40%。量測規格：使用Firebase Analytics或內部Analytics平台；事件名稱：task_completed（屬性：task_id, player_id, date_utc8）；Pass定義：Launch+3M期間連續7日移動平均DAU任務完成率≥40%；分母=當日DAU（日首次登入唯一帳號數）。
 - AC-4: 500–999 籌碼邊緣情況：完成 1 個任務（最低獎勵 500 籌碼）後，玩家總籌碼 ≥ 1,000，可重新進入青銅廳。
 
 **Out of Scope v1.0：** 任務難度等級制、任務成就徽章、任務社群分享。
@@ -630,13 +636,13 @@ As a **Returning Player**, I want to optionally purchase more chips or watch ads
 | NFR-07 | 相容性：行動裝置 | Android / iOS 最低版本 | Android 8.0+（API 26+）、iOS 14+ | 實機測試 + Firebase Test Lab | Must | QA |
 | NFR-08 | 相容性：解析度 | 行動端最小螢幕寬度 | 375px（iPhone SE）以上無 UI 截斷 | 視覺回歸測試 | Must | QA + Art |
 | NFR-09 | 可擴展性 | 水平擴展觸發條件 | 單節點 CPU > 70% 持續 5 分鐘觸發自動擴容 | Colyseus + k8s HPA 設定驗證 | Should | SRE |
-| NFR-10 | 可觀測性 | 關鍵業務指標監控覆蓋；籌碼異常監控事件清單（以下任一觸發Grafana alert + PagerDuty通報，SRE響應SLA≤15分鐘）：(1)結算後籌碼守恆失敗：所有玩家淨增減之和 ≠ -rake_amount；(2)單玩家chip_balance出現負值；(3)單局rake_amount > 底池10%（異常抽水）；(4)Transaction記錄與chip_balance不一致（T+1日夜間對帳） | CCU、延遲 P95/P99、錯誤率、籌碼異常 100% 覆蓋 | Grafana Dashboard 審查 | Should | SRE + PM |
+| NFR-10 | 可觀測性 | 關鍵業務指標監控覆蓋；籌碼異常監控事件清單（以下任一觸發Grafana alert + PagerDuty通報，SRE響應SLA≤15分鐘）：(1)結算後籌碼守恆失敗：所有玩家淨增減之和 ≠ -rake_amount；(2)單玩家chip_balance出現負值；(3)單局rake_amount > floor(底池 × 0.05) + 1（超過理論最大值一個整數誤差單位，偵測6%+異常抽水）；(4)Transaction記錄與chip_balance不一致（T+1日夜間對帳） | CCU、延遲 P95/P99、錯誤率、籌碼異常 100% 覆蓋 | Grafana Dashboard 審查 | Should | SRE + PM |
 | NFR-11 | 合規：個資 | 用戶資料刪除請求處理 | 收到請求 7 個工作日內完成刪除 | 合規稽核 | Must | Legal + DPO |
 | NFR-12 | 效能：啟動時間 | 遊戲 Web 端首屏載入 | ≤ 5 秒（4G 網路，1MB/s） | Lighthouse 測試 | Should | Eng Lead |
 | NFR-13 | 資料備份與還原 | PostgreSQL 每日全量備份 + 每小時 WAL 增量；Redis 每 15 分鐘 RDB 快照 | RPO ≤ 1 小時；RTO ≤ 4 小時 | 季度備份恢復演練（實際還原測試通過） | Must | SRE |
 | NFR-14 | 連線可靠性 | Colyseus WebSocket 心跳與重連 | ping/pong ≤ 10 秒；斷線後自動重連最多 3 次（退避 1/2/4 秒）；超 30 秒觸發斷線行為處理 | Playwright + 網路節流模擬測試 | Must | Eng Lead |
 | NFR-15 | 安全：WebSocket速率限制 | 每個WebSocket連線每秒消息數上限；單條消息最大payload；超限觸發速率限制 | 每連線每秒 ≤ 10條消息；單條消息 ≤ 4KB payload；超限返回rate_limit error；持續違規帳號臨時斷線30秒冷卻 | 壓測工具模擬高頻消息攻擊；驗證超限後正確返回error且連線冷卻 | Must | Eng Lead |
-| NFR-16 | 效能：資料庫查詢延遲 | PostgreSQL查詢延遲；Redis操作延遲；連線池管理 | PostgreSQL P95查詢延遲 ≤ 50ms；Redis P95操作延遲 ≤ 5ms；連線池最大連線數：500 CCU下至少50個DB連線；連線池耗盡返回HTTP 503 | APM監控（如Datadog / Grafana）；壓測下P95延遲驗證 | Must | Eng Lead + SRE |
+| NFR-16 | 效能：資料庫查詢延遲 | PostgreSQL查詢延遲；Redis操作延遲；連線池管理；Circuit Breaker策略：連線池耗盡後啟動30秒Circuit Breaker（返回HTTP 503 + Retry-After:30頭）；30秒後進入Half-Open：允許10%請求通過探測恢復；完全恢復條件：P95查詢延遲恢復至≤50ms持續60秒；若Circuit Breaker實作延至v1.x，在Decision Log中記載（含風險說明） | PostgreSQL P95查詢延遲 ≤ 50ms；Redis P95操作延遲 ≤ 5ms；連線池最大連線數：500 CCU下至少50個DB連線；連線池耗盡返回HTTP 503 + Retry-After:30頭 | APM監控（如Datadog / Grafana）；壓測下P95延遲驗證 | Must | Eng Lead + SRE |
 | NFR-17 | 安全：Session Token | JWT 存取 Token 有效期 ≤ 1 小時；Refresh Token 有效期 ≤ 7 天；帳號封鎖後所有活躍 Token ≤ 1 分鐘失效（Server 端短效 Token 強制刷新）；簽名演算法：RS256 或 ES256（禁止 HS256）；測試：封號後 60 秒內嘗試已發 Token 操作返回 HTTP 401 | 封號後 Token 失效 ≤ 60 秒；Token 長度符合演算法規格 | 封號流程測試 + Token 驗證 | Must | Eng Lead |
 | NFR-18 | 可用性：DB Failover | PostgreSQL 採主從熱備援（streaming replication）；自動 failover 觸發：主節點不可用 60 秒後；服務恢復目標 ≤ 5 分鐘（計入 NFR-03 SLA）；Redis 採 Sentinel 模式；季度 failover 演練，記錄實際恢復時間 | 服務恢復時間 ≤ 5 分鐘 | 季度 failover 演練（實際恢復測試通過）| Must | SRE |
 | NFR-19 | 安全：REST API Rate Limit | REST API端點Rate Limit：(1)認證端點（/auth/*）：每IP每分鐘≤30次；(2)/player/daily-chip及/tasks/{id}/complete：每帳號每日限1次（AC層面已定義，NFR層面確認）；(3)一般API端點：每用戶每分鐘≤120次（2次/秒）；(4)IP全局Rate Limit：每IP每秒≤100次請求；超限返回HTTP 429 | 各端點超限返回HTTP 429 | 壓測工具模擬超限請求；驗證返回429及各限制正確執行 | Must | Eng Lead |
@@ -699,7 +705,8 @@ Step 6: 三步驟結算（原子性執行，見 §5.3）
 
 **Step 6a — 確認結果與底池構成：**
 - Server 確認每位閒家的比牌結果（贏 / 輸 / Fold）。
-- 莊家勝的閒家下注額 + 棄牌（Fold）閒家下注額 → 歸入底池（輸家底池）。
+- 底池 = 莊家勝的閒家下注額加總（Fold閒家下注額=0，不入底池，不計入底池構成）。
+- 莊家勝的閒家下注額 → 歸入底池（輸家底池）；棄牌（Fold）閒家下注額 = 0，不下注，不入底池。
 - 莊家敗的閒家下注額 → 不入底池（由莊家從自身籌碼直接支付本金 + 賠率）。
 
 **Step 6b — 抽水（Rake）：**
@@ -931,6 +938,7 @@ Step 6: 三步驟結算（原子性執行，見 §5.3）
 | 莊家結算後籌碼歸零 | 觸發次局自動輪莊；若莊家救濟後仍 < 本廳最低下注額，跳過本莊家資格（D9）|
 | 抽水計算（破產情境）| 抽水 = floor(莊家破產前已完成結算的輸家閒家下注額加總 × 0.05)，最少1籌碼（若加總 > 0）；未能結算的贏家下注額不計入抽水底數 |
 | 莊家結算後籌碼歸零且今日救濟已用盡 | 若玩家已觸發今日救濟但籌碼再次歸零，提示「今日救濟已用盡，無法獲得補充籌碼」；若餘額500-999（高於<500救濟觸發線），顯示邊緣狀態提示；玩家可選擇：(1)留在房間觀看（不能下注，無輪莊資格直至補充籌碼）；(2)返回大廳；房間不強制驅逐此玩家（由玩家決定） |
+| 後續排隊贏家（莊家破產後無法支付者）在Call時已從自身籌碼扣除的下注額 | 依D13先到先得規則，得零，包含本金不退還（Call視為確認下注，風險自負）；Server在結算事務開始前Record所有玩家Call下注額，若莊家破產後無法覆蓋該玩家，其下注額即作為損失記錄在Transaction表（tx_type=game_lose） |
 
 ### 8.3 500-999 Chip Edge Case
 
@@ -956,7 +964,7 @@ Step 6: 三步驟結算（原子性執行，見 §5.3）
 | 玩家人數降至 1 人（另一玩家離開）| 停止接受新局；等待新玩家補入或解散（等待 60 秒後解散）|
 | 所有玩家離開 | 房間立即銷毀，Server 釋放 Room 資源 |
 | 中途跌破入場門檻 | 當局繼續；結算後提示玩家並自動移至大廳；不影響進行中牌局 |
-| 配對超時（60 秒）| 取消配對，通知玩家「配對超時」，保留在大廳頁面 |
+| 配對超時（90 秒總上限：30 秒同廳 + 60 秒擴展）| 取消配對，通知玩家「配對超時」，保留在大廳頁面 |
 | Tutorial Room 完成 | 模擬牌局結束後，Room 解散；Client 導向教學完成確認頁，然後解鎖正式大廳 |
 
 ### 8.6 Graceful Degradation策略
@@ -976,9 +984,9 @@ Step 6: 三步驟結算（原子性執行，見 §5.3）
 | 合規項目 | 要求 | 實作方式 | 截止日 |
 |---------|------|---------|--------|
 | 《刑法》第 266 條（賭博罪）| 不得以財物或可兌換財物為賭注 | 虛擬籌碼不可兌換、不可購買（IAP 依法律意見書決定）；所有遊戲介面明確標示「娛樂性質，虛擬籌碼無真實財務價值」| 2026-05-15（法律意見書）|
-| 《詐欺犯罪危害防制條例》| 實名制、可疑交易通報、配合調查 | 帳號 OTP 驗證；建立可疑行為通報 SOP（見§9.1a 詐欺防制通報機制）| GA 前（2026-08-21） |
+| 《詐欺犯罪危害防制條例》| 實名制、可疑交易通報、配合調查 | 帳號 OTP 驗證；建立可疑行為通報 SOP（見§9.1a 詐欺防制通報機制）；v1.0以手機OTP作為實名制臨時方案；是否符合實名制要求依法律意見書（2026-05-15）確認；若不符，升級條件見§9.5 KYC升級觸發條件 | GA 前（2026-08-21） |
 | 《個人資料保護法》| 告知、同意、最小蒐集、刪除權 | Cookie 橫幅（REQ-016）、隱私權政策、資料刪除 API（7 工作日內）| 2026-06-01（DPIA 完成）|
-| Google Play / App Store | 博弈類 App 審查，需強調「無實質獎勵」| 文案、描述、截圖均強調娛樂性質；避免博弈相關字眼 | 2026-08-07（GA-2 週）|
+| Google Play / App Store | 博弈類 App 審查，需強調「無實質獎勵」| 文案、描述、截圖均強調娛樂性質；避免博弈相關字眼；驗收checklist：App Store頁面、Google Play頁面、截圖標題、App內文案均不含「賭博」「下注」「賠率」等字眼（具體清單由Legal定義存放/docs/content-policy/store-copy-policy.md）；驗收人：Product + Legal聯合確認；Pass=Legal書面確認通過；截止日：2026-08-07 | 2026-08-07（GA-2 週）|
 
 ### 9.1a 詐欺防制通報機制（《詐欺犯罪危害防制條例》）
 
