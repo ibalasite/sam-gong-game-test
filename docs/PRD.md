@@ -8,7 +8,7 @@
 | 欄位 | 內容 |
 |------|------|
 | **DOC-ID** | PRD-SAM-GONG-20260421 |
-| **版本** | v1.0-draft |
+| **版本** | v1.2-draft |
 | **狀態** | DRAFT |
 | **來源** | BRD-SAM-GONG / STEP-03 自動生成 |
 | **作者** | devsop-autodev |
@@ -21,6 +21,7 @@
 |------|------|---------|
 | v1.0-draft | 2026-04-21 | 初稿，由 STEP-03 自動生成 |
 | v1.1-draft | 2026-04-21 | STEP-04 Round 1 審查修正：牌點語意、狀態機流局路徑、SETTLING命名統一、PQ-1解答、Schema過濾機制、US-013格式、REQ-016新增、RTM補全 |
+| v1.2-draft | 2026-04-21 | STEP-04 Round 2 審查修正：O3目標對齊BRD、PQ-2解答、API補start_game、US-007流局AC、狀態機莊家輪換說明、PlayerState.status枚舉澄清 |
 
 ---
 
@@ -34,7 +35,7 @@
 |---------|---------|---------|
 | O1: 可玩的三公線上遊戲 | 完整牌局流程（創房→押注→比牌→結算） | 每局完成率 ≥ 95% |
 | O2: 穩定 Beta 用戶留存 | 斷線重連（60s）+ 流暢動畫 | 7D 留存率 ≥ 20%（Beta） |
-| O3: 無作弊機制 | Server-Authoritative 架構，牌不提前下發 | 牌局異常率 < 0.1% |
+| O3: 技術架構可擴展至其他棋牌 | 模組化牌型引擎，可複用至其他棋牌 | 牌型引擎模組可獨立測試且文件覆蓋率 ≥ 80% |
 
 ---
 
@@ -115,6 +116,7 @@
 - AC-007-3: 選擇「棄牌（Fold）」→ 本局不參與比牌，不扣籌碼
 - AC-007-4: 超時自動「棄牌」
 - AC-007-5: 至少 1 位閒家跟注才發牌
+- AC-007-6: 若所有閒家棄牌，Server 直接進入 ROUND_END（流局），底注退回莊家，無需發牌
 
 ### Epic 4: 發牌與比牌（核心邏輯）
 #### US-008: Server 洗牌發牌
@@ -238,6 +240,8 @@ ROUND_END（本局結束）
 
 > **非法狀態轉換（Server 必須拒絕）：** LOBBY→DEALING、LOBBY→SETTLING、BETTING→SETTLING、DEALING→BETTING、ROUND_END→SETTLING
 
+> **莊家輪換說明：** 第一局由 LOBBY→BANKER_SELECTION（隨機指定莊家）；第二局起由 ROUND_END 直接進入 BETTING（莊家已由 US-005 輪換機制決定），無需再進入 BANKER_SELECTION 階段。
+
 ---
 
 ## 5. Non-Functional Requirements
@@ -290,7 +294,7 @@ export class Card extends Schema {
 
 export class PlayerState extends Schema {
   @type("string") sessionId: string = "";
-  @type("string") status: string = "waiting"; // waiting | betting | folded | ready | disconnected
+  @type("string") status: string = "waiting"; // waiting | deciding（押注決策中）| folded（棄牌）| called（已跟注）| disconnected
   @type("number") chips: number = 1000;
   @type("boolean") isBanker: boolean = false;
   @type("boolean") hasBet: boolean = false;
@@ -320,6 +324,7 @@ export class SamGongState extends Schema {
 
 | Message Type | Payload | Description |
 |-------------|---------|-------------|
+| `start_game` | `{}` | 房主觸發遊戲開始（LOBBY→BANKER_SELECTION）|
 | `set_bet_amount` | `{ amount: number }` | 莊家設定底注 |
 | `player_action` | `{ action: "call" \| "fold" }` | 閒家跟注/棄牌 |
 | `ready_for_reveal` | `{}` | 玩家準備翻牌 |
@@ -390,7 +395,7 @@ export class SamGongState extends Schema {
 | # | 問題 | 影響 | 截止 | 狀態 |
 |---|------|------|------|------|
 | PQ-1 | 「公牌」點=0 勝所有點數，還是只勝點9？ | 三公規則變體，影響比牌邏輯 | EDD前確認 | **RESOLVED**：公牌勝所有1-9點，依 AC-009-4 實作（公牌 > 9 > 8 > ... > 1）|
-| PQ-2 | 同點（非公牌）平局規則？莊贏 or 退注？ | 結算邏輯 | EDD前確認 | OPEN |
+| PQ-2 | 同點（非公牌）平局規則？莊贏 or 退注？ | 結算邏輯 | EDD前確認 | **RESOLVED**：同點（非公牌）→ 莊贏（平局莊佔優），依 AC-010-3 實作 |
 | PQ-3 | 斷線超 60s 的玩家籌碼如何處理？ | 重連邏輯 | 實作前 | OPEN |
 
 ---
