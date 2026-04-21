@@ -317,6 +317,18 @@
 - 字體：12pt；`#FFFFFF`；居中
 - 位置：遊戲桌面中央上方，底池金額下方
 
+**Phase Key 映射規則 (Phase-to-i18n Mapping)：**
+
+**Phase Enum → i18n Key 映射規則：**
+Room State `phase` 欄位使用連字號（hyphen）格式（如 `banker-bet`、`player-bet`），i18n key 使用底線（underscore）格式（如 `game.phase.banker_bet`、`game.phase.player_bet`）。
+映射公式：`i18nKey = 'game.phase.' + phase.replace(/-/g, '_')`
+實作參考：
+```typescript
+const phaseKey = `game.phase.${room.phase.replace(/-/g, '_')}`;
+const phaseText = i18n.t(phaseKey); // e.g., '莊家下注中'
+```
+此規則適用於所有 CMP-006 Phase Indicator 文字渲染。
+
 ---
 
 ### CMP-007：Timer Bar（倒數計時條）
@@ -1374,7 +1386,7 @@ SCR-007 底部玩家資訊列中的「籌碼：N」來源：
 **行為規格：**
 - Cookie 同意管理：可隨時撤回或修改 Cookie 同意（REQ-016 AC-3）；撤回後送出更新至後端記錄
 - 重播新手引導：點擊後跳轉至 SCR-008 Tutorial（REQ-012 AC-4a）
-- 減少動畫開關：開啟後，計時緊急（≤5s）畫面震動改為 Timer Bar 顏色閃爍（紅色 `#C0392B` 閃爍 0.2s 間隔）；遵循 WCAG 2.3.3 前庭覺敏感設計指引（F19）
+- 減少動畫開關：「減少動畫」開啟時，計時器緊急狀態（≤5s）改為靜態純紅色顯示，無任何閃爍效果（0Hz，符合 WCAG 2.3.1）—— 詳見 §6.7
 - 設定值儲存至本機（Cocos Creator 本地存儲）及 Server 使用者設定檔
 - 隱私權政策：點擊後開啟 WebView 至 `privacy_policy_url`（來自 Server config），含返回按鈕
 - 幫助 / 常見問題：點擊後開啟 WebView 至 `faq_url`（來自 Server config），含返回按鈕
@@ -1584,7 +1596,7 @@ i18n key: `settings.logout_confirm_midgame` = '您正在遊戲中！離開將視
 - 閃爍參數：3 個週期（cycles）；每個週期 333ms（亮 167ms + 滅 167ms）；總計 1 秒
 - 頻率：3Hz（正好在 WCAG 2.3.1 安全閾值內，≤ 3Hz，無光敏癲癇風險）
 - 合規說明：「3Hz ≤ WCAG 2.3.1 threshold（3 flashes per second limit）；此規格合規。」
-- **「減少動畫」模式：** 若用戶在 SCR-015 Settings 中開啟「減少動畫」開關，Expired 閃爍改為靜態純紅色（`#C0392B`）顯示，無任何閃爍效果（0Hz）；同時顯示「時間到」文字標籤替代視覺閃爍提示。
+- **「減少動畫」模式：** 若用戶在 SCR-015 Settings 中開啟「減少動畫」開關，Expired 閃爍改為靜態純紅色（`#C0392B`）顯示，無任何閃爍效果（0Hz）；同時顯示「時間到」文字標籤（i18n key: `game.timer_expired`）替代視覺閃爍提示。
 
 **無障礙設定：** 若 Settings（SCR-015）中「減少動畫」開關開啟，畫面震動改為 Timer Bar 靜態紅色（無閃爍）；遵循 WCAG 2.3.1（閃爍頻率限制）及 WCAG 2.3.3（前庭覺敏感設計指引）。
 
@@ -1777,7 +1789,8 @@ i18n key: `settings.logout_confirm_midgame` = '您正在遊戲中！離開將視
     "fold_label": "棄牌",
     "tie_label": "平手退注",
     "insolvency_zero": "⚠ -{bet}籌碼損失（因莊家破產，本金無法取回，實際損失 -{bet}）",
-    "new_banker_banner": "新莊家：{name}"
+    "new_banker_banner": "新莊家：{name}",
+    "timer_expired": "時間到"
   },
   "settlement": {
     "rake_label": "本局抽水：",
