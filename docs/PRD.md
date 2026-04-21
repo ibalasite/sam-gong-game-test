@@ -138,8 +138,8 @@ As a **Casual Player**（張先生）, I want the game deck to be shuffled on th
 
 1. Server 以 Fisher-Yates（Knuth shuffle）演算法執行 52 張牌的洗牌；洗牌過程完全發生於 Server 端，Client 不接收任何洗牌種子或中間結果。
 2. 洗牌亂度統計驗證（BRD F19）：樣本數 ≥ 10,000 次洗牌，對 52 張牌 × 52 個位置分佈進行卡方檢定（自由度 = 51），p-value > 0.05 為通過；此測試必須在 Alpha 驗收（2026-06-21）前完成，結果記入測試報告。
-3. Client bundle 靜態代碼分析掃描（CI/CD 每次 build 執行）中，以下關鍵字命中數必須為 0：`compareCards`、`calculatePoints`、`determineWinner`、`cardValue`、`handRank`、`shuffle`、`sortCards`、`suitRank`、`suitOrder`、`tieBreak`、`rakeFee`、`settlementCalc`、`bankerPayout`；工具：ESLint custom rule 或 grep；掃描 0 命中為 Pass。注意：中文命名函式不受關鍵字掃描保護，根本防護依賴F35架構隔離（server-only TypeScript package）。**【F16 中文命名函式規避風險】** 架構隔離（AC-7 TypeScript project references CI gate）為主要防護；若CI架構隔離配置錯誤，需有回退掃描（如TypeScript AST分析判斷遊戲邏輯模式是否出現在client package）；此回退掃描需在Security Review checklist（Alpha前）中列為必查項。
-4. 每次洗牌使用加密安全亂數源（如 Node.js `crypto.randomInt()`），不使用 `Math.random()`。測試方法：(a) CI/CD 靜態掃描禁止關鍵字包含 Math.random（可納入 AC-3 掃描清單）；(b) Server 單元測試 mock crypto 模組，驗證呼叫路徑使用 crypto.randomInt()；Pass 條件：掃描 0 命中 + 單元測試通過。
+3. Client bundle 靜態代碼分析掃描（CI/CD 每次 build 執行）中，以下關鍵字命中數必須為 0：`compareCards`、`calculatePoints`、`determineWinner`、`cardValue`、`handRank`、`shuffle`、`sortCards`、`suitRank`、`suitOrder`、`tieBreak`、`rakeFee`、`settlementCalc`、`bankerPayout`、`Math.random`；工具：ESLint custom rule 或 grep；掃描 0 命中為 Pass。注意：中文命名函式不受關鍵字掃描保護，根本防護依賴F35架構隔離（server-only TypeScript package）。**【F16 中文命名函式規避風險】** 架構隔離（AC-7 TypeScript project references CI gate）為主要防護；若CI架構隔離配置錯誤，需有回退掃描（如TypeScript AST分析判斷遊戲邏輯模式是否出現在client package）；此回退掃描需在Security Review checklist（Alpha前）中列為必查項。
+4. 每次洗牌使用加密安全亂數源（如 Node.js `crypto.randomInt()`），不使用 `Math.random()`。測試方法：(a) CI/CD 靜態掃描禁止關鍵字包含 Math.random（已納入 AC-3 禁止關鍵字清單）；(b) Server 單元測試 mock crypto 模組，驗證呼叫路徑使用 crypto.randomInt()；Pass 條件：掃描 0 命中 + 單元測試通過。
 
 **Out of Scope：**
 - Client 端洗牌邏輯（明確禁止）。
@@ -221,7 +221,7 @@ As a **Casual Player**, I want the server to automatically calculate and distrib
 
 1. 結算依 §5.3 三步驟原子性執行：Step 6a 確認每位閒家比牌結果；Step 6b 從輸家閒家下注額加總中扣除 5% 抽水（`floor(輸家下注額加總 × 0.05)`，最少 1 籌碼）；**空底池守衛（AC-1）：若底池（輸家閒家下注額加總）= 0，則抽水 = 0，最少1籌碼條款不適用；最少1籌碼僅在底池 > 0時生效**；Step 6c 依序支付（閒家勝：莊家直接支付本金 1× + N× 賠率，不經底池；閒家敗：閒家下注額歸底池扣抽水後給莊家）。事務隔離：使用PostgreSQL SERIALIZABLE隔離等級或READ COMMITTED + SELECT FOR UPDATE行級鎖；並發安全測試：100個並發結算請求，驗證籌碼守恆誤差 = 0。**【F1 莊家預扣時機（AC-1補充）】莊家下注確認後（§5.1 Step 2），Server立即預扣（escrow）banker_bet_amount：banker chip_balance -= banker_bet_amount（預扣至托管態）；Step 6c支付贏家時從預扣額及剩餘餘額中順序支付；破產判斷以Step 2後的chip_balance為準。**
 2. 籌碼守恆驗證：每局結算後，全體玩家籌碼淨增減之和必須等於 `-(抽水額)`；誤差容忍 = 0 籌碼；驗證在結算事務提交後同步執行；失敗時：(1) 立即回滾結算事務；(2) 寫入CRITICAL log含game_id和差異金額；(3) 觸發PagerDuty告警，SRE響應SLA ≤ 15分鐘。
-3. 莊家破產規則（先到先得，D13）：若莊家籌碼不足以支付所有贏家，依閒家順時鐘座位順序逐一支付贏家；每位贏家依序收取本金（1×下注額）+N×下注額賠付；莊家籌碼歸零後，後續排隊贏家所得為零（不按比例分配，不取回本金，得零）；抽水 = floor(莊家破產前已實際完成結算的輸家閒家下注額加總 × 0.05)，最少1籌碼（底池 > 0 時）；莊家破產後未完成結算的輸家下注額不計入抽水底數；移除任何「按比例」抽水語言。破產後得零贏家的結算廣播使用insolvent_winners陣列（見§7 settlement廣播schema）。**【F1 破產判定（AC-3補充）】破產判定：若莊家Step 6c支付過程中chip_balance + escrow_amount < 本次應支付額，觸發D13先到先得；後續贏家得零。**
+3. 莊家破產規則（先到先得，D13）：若莊家籌碼不足以支付所有贏家，依閒家順時鐘座位順序逐一支付贏家；每位贏家依序收取本金（1×下注額）+N×下注額賠付；莊家籌碼歸零後，後續排隊贏家所得為零（不按比例分配，不取回本金，得零）；抽水 = floor(莊家破產前已實際完成結算的輸家閒家下注額加總 × 0.05)，最少1籌碼（底池 > 0 時）；莊家破產後未完成結算的輸家下注額不計入抽水底數；移除任何「按比例」抽水語言。破產後得零贏家的結算廣播使用insolvent_winners陣列（見§7 settlement廣播schema）。**【F1 破產判定（AC-3補充）】破產判定：若莊家Step 6c支付過程中chip_balance + escrow_amount < 本次應支付額，觸發D13先到先得；後續贏家得零。**（注：Step 2後chip_balance為逐筆支付起點；Step 6c支付過程中escrow_amount隨每筆支付逐步釋放，故可用資金 = 當前chip_balance + 未釋放escrow_amount，與AC-1「Step 2後chip_balance為準」指同一基準資金池）
 4. 結算完成後，Server 在 100ms 內廣播最終狀態至所有 Client，包含每位玩家的籌碼變動明細。測試規格：工具 k6 或 Colyseus load test；測試環境：亞太區模擬（EC2 ap-northeast-1）；負載：500 CCU 持續 10 分鐘；樣本數 ≥ 10,000 次操作；通過條件：P95 ≤ 100ms 且 P99 < 500ms。
 
 **Payout Table（台灣標準版）：**
@@ -946,6 +946,8 @@ Step 6: 三步驟結算（原子性執行，見 §5.3）
 | `rescueChips` | 救濟籌碼補發通知 |
 
 > **注：settlement廣播schema中`net_chips: -bet`表示負的下注金額，由Server計算後填入實際數值廣播（非字面字串）。**
+
+> **注：winners[].payout = (1+N)×bet（本局總取回籌碼，含本金+賠率）；net_chips = N×bet（本局淨利潤）**——此區分可防止 Client 端渲染錯誤：payout 為玩家實際收到的總籌碼數（含本金返還），net_chips 為純利潤（不含本金）。
 
 > **【All-Fold 場景補充說明】全員棄牌時（底池=0，莊家 net=0）：莊家不出現在 winners/losers/folders/ties/insolvent_winners 任何陣列中；其籌碼狀態僅透過 banker_remaining_chips 廣播（含 escrow 退回後的值）；Client 依 folders 陣列顯示所有棄牌閒家，依 banker_remaining_chips 更新莊家籌碼顯示。**
 
