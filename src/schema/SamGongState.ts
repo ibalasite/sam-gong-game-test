@@ -78,6 +78,12 @@ export class PlayerState extends Schema {
   @type('boolean') is_folded: boolean = false;
   @type('boolean') has_acted: boolean = false;
   @type('boolean') is_banker: boolean = false;
+  /**
+   * BUG-20260422-001：中途加入排隊旗標。
+   * true = 玩家在當前局進行中加入（phase !== 'waiting'），本局不參與發牌 / 下注 /
+   * 跟注 / 棄牌 / 輪莊；resetForNextRound() 清除旗標後於下一局正式入局。
+   */
+  @type('boolean') is_waiting_next_round: boolean = false;
   @type('string') display_name: string = '';
   @type('string') avatar_url: string = '';
 

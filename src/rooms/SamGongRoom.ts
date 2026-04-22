@@ -275,6 +275,13 @@ export class SamGongRoom extends Room<SamGongState> {
     player.avatar_url = auth.avatar_url ?? '';
     player.is_connected = true;
     player.is_banker = false;
+    // BUG-20260422-001：中途加入（phase !== 'waiting'）時標記為排隊，
+    // 本局不參與任何行動；resetForNextRound 時清除旗標正式入局。
+    player.is_waiting_next_round = this.state.phase !== 'waiting';
+    if (player.is_waiting_next_round) {
+      player.has_acted = true;  // 避免被 getNextPlayerToAct 選中
+      player.is_folded = false;
+    }
 
     this.state.players.set(String(seatIndex), player);
 
@@ -430,20 +437,31 @@ export class SamGongRoom extends Room<SamGongState> {
     this.state.phase = 'dealing';
     this.playerHands.clear();
 
-    const players = Array.from(this.state.players.values()) as PlayerState[];
+    // BUG-20260422-001：僅現役玩家參與發牌 / 輪莊 / 下注，排除中途加入排隊者
+    const players = (Array.from(this.state.players.values()) as PlayerState[])
+      .filter((p) => !p.is_waiting_next_round);
 
     // 首局決定莊家
     if (this.state.banker_seat_index === -1) {
       this.state.banker_seat_index = this.bankerRotation.determineFirstBanker(players);
     }
 
-    // 標記莊家
+    // 標記莊家（僅現役）
     players.forEach((p) => {
       p.is_banker = p.seat_index === this.state.banker_seat_index;
       p.bet_amount = 0;
       p.has_acted = false;
       p.is_folded = false;
     });
+    // 排隊玩家確保不被選為莊家、不被選為行動對象
+    (Array.from(this.state.players.values()) as PlayerState[])
+      .filter((p) => p.is_waiting_next_round)
+      .forEach((p) => {
+        p.is_banker = false;
+        p.has_acted = true;
+        p.bet_amount = 0;
+        p.is_folded = false;
+      });
 
     // DeckManager 發牌（使用 crypto.randomInt Fisher-Yates）
     if (this.state.is_tutorial) {
@@ -612,8 +630,11 @@ export class SamGongRoom extends Room<SamGongState> {
    * 取得下一個待行動的閒家 seat_index（-1 = 無）
    */
   private getNextPlayerToAct(): number {
+    // BUG-20260422-001：排除 mid-game join 排隊者（雖然 has_acted=true 已間接排除，仍顯式過濾較清晰）
     const players = (Array.from(this.state.players.values()) as PlayerState[])
-      .filter((p) => p.seat_index !== this.state.banker_seat_index && !p.has_acted)
+      .filter((p) => p.seat_index !== this.state.banker_seat_index
+        && !p.has_acted
+        && !p.is_waiting_next_round)
       .sort((a, b) => a.seat_index - b.seat_index);
 
     return players.length > 0 ? players[0].seat_index : -1;
@@ -774,7 +795,7 @@ export class SamGongRoom extends Room<SamGongState> {
           this.resetForNextRound();
           // resetForNextRound 可能因無合格莊家而提早 return（phase='waiting'）
           if (this.state.phase === 'waiting') {
-            this.unlock();  // 重新開放加入
+            // BUG-20260422-001：房間於遊戲中亦開放加入，unlock() 保留為無害守備
             this.broadcastRoomState();
           } else {
             this.startNewRound();
@@ -823,6 +844,8 @@ export class SamGongRoom extends Room<SamGongState> {
       player.bet_amount = 0;
       player.has_acted = false;
       player.is_folded = false;
+      // BUG-20260422-001：清除 mid-game join 旗標，排隊玩家於下一局正式入局
+      player.is_waiting_next_round = false;
     });
 
     this.state.banker_bet_amount = 0;
@@ -865,6 +888,12 @@ export class SamGongRoom extends Room<SamGongState> {
   private handleBankerBet(client: Client, message: BankerBetMessage): void {
     const player = this.findPlayerByClient(client);
     if (!player) return;
+
+    // BUG-20260422-001：中途加入排隊玩家不得行動
+    if (player.is_waiting_next_round) {
+      client.send('error', { code: 'waiting_next_round', message: 'You joined mid-game; please wait for next round' });
+      return;
+    }
 
     if (this.state.phase !== 'banker-bet') {
       client.send('error', { code: 'invalid_phase', message: 'Not in banker-bet phase' });
@@ -918,6 +947,12 @@ export class SamGongRoom extends Room<SamGongState> {
     const player = this.findPlayerByClient(client);
     if (!player) return;
 
+    // BUG-20260422-001：中途加入排隊玩家不得行動
+    if (player.is_waiting_next_round) {
+      client.send('error', { code: 'waiting_next_round', message: 'You joined mid-game; please wait for next round' });
+      return;
+    }
+
     if (this.state.phase !== 'player-bet') {
       client.send('error', { code: 'invalid_phase', message: 'Not in player-bet phase' });
       return;
@@ -949,6 +984,12 @@ export class SamGongRoom extends Room<SamGongState> {
   private handleFold(client: Client): void {
     const player = this.findPlayerByClient(client);
     if (!player) return;
+
+    // BUG-20260422-001：中途加入排隊玩家不得行動
+    if (player.is_waiting_next_round) {
+      client.send('error', { code: 'waiting_next_round', message: 'You joined mid-game; please wait for next round' });
+      return;
+    }
 
     if (this.state.phase !== 'player-bet') {
       client.send('error', { code: 'invalid_phase', message: 'Not in player-bet phase' });
@@ -1080,6 +1121,7 @@ export class SamGongRoom extends Room<SamGongState> {
       seat_index: number; player_id: string; display_name: string;
       chip_balance: number; is_banker: boolean; is_folded: boolean;
       has_acted: boolean; bet_amount: number;
+      is_waiting_next_round: boolean;
     }> = [];
 
     this.state.players.forEach((p) => {
@@ -1092,6 +1134,8 @@ export class SamGongRoom extends Room<SamGongState> {
         is_folded: p.is_folded,
         has_acted: p.has_acted,
         bet_amount: p.bet_amount,
+        // BUG-20260422-001：Client 可據此顯示「等待下一局」提示
+        is_waiting_next_round: p.is_waiting_next_round,
       });
     });
 
