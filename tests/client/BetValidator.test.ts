@@ -155,6 +155,18 @@ describe('BetValidator', () => {
       expect(result.error).toBe('NOT_INTEGER');
     });
 
+    it('TC-19b: amount 浮點數 → NOT_INTEGER（浮點數不是整數）', () => {
+      const result = validator.validate(100.5, 100, 500, 10_000);
+      expect(result.valid).toBe(false);
+      expect(result.error).toBe('NOT_INTEGER');
+    });
+
+    it('TC-19c: amount=NaN → NOT_INTEGER', () => {
+      const result = validator.validate(NaN, 100, 500, 10_000);
+      expect(result.valid).toBe(false);
+      expect(result.error).toBe('NOT_INTEGER');
+    });
+
     it('TC-20: amount=minBet=maxBet, balance=minBet → valid (廳別只有一個合法值)', () => {
       const result = validator.validate(100, 100, 100, 100);
       expect(result.valid).toBe(true);
