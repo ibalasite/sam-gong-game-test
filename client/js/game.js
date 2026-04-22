@@ -858,36 +858,45 @@ function startDealAnimation(onComplete) {
   _myHandRevealedCount = 0;
   renderState(_state);
 
-  // BUG-20260422-006：1 秒一張，讓玩家看清楚發牌順序與翻面時機
-  const CARD_DELAY = 1000;
+  // BUG-20260422-006 / 007：前兩張 1 秒，第 3 張（每人最後一張）2 秒增加緊張感
+  const CARD_DELAY      = 1000;
+  const CARD_DELAY_LAST = 2000;
   const total = dealQueue.length * 3;
   let dealt = 0;
 
+  // 累積時序：round 0 + round 1 用 CARD_DELAY，round 2 用 CARD_DELAY_LAST
+  let cumDelay = 0;
+  const schedule = [];
   for (let round = 0; round < 3; round++) {
-    dealQueue.forEach((player, j) => {
-      const delay = (round * dealQueue.length + j) * CARD_DELAY;
-      const toEl = elForSeat(player.seat_index);  // 依相對座位映射
-      setTimeout(() => {
-        flyCard(bankerEl, toEl, () => {
-          _dealAnim.dealtForSeat[player.seat_index] = (_dealAnim.dealtForSeat[player.seat_index] || 0) + 1;
-          if (player.player_id === _myPid) {
-            _myHandRevealedCount = Math.min(3, _myHandRevealedCount + 1);
-            playCoinDrop();  // 自己翻牌時有聲效
-          }
-          renderState(_state);
-          dealt++;
-          if (dealt === total) {
-            setTimeout(() => {
-              _dealAnim.inProgress = false;
-              _myHandRevealedCount = 3;
-              renderState(_state);
-              if (onComplete) onComplete();
-            }, 400);
-          }
-        });
-      }, delay);
+    const perCard = (round === 2) ? CARD_DELAY_LAST : CARD_DELAY;
+    dealQueue.forEach((player) => {
+      schedule.push({ player, at: cumDelay });
+      cumDelay += perCard;
     });
   }
+
+  schedule.forEach(({ player, at: delay }) => {
+    const toEl = elForSeat(player.seat_index);  // 依相對座位映射
+    setTimeout(() => {
+      flyCard(bankerEl, toEl, () => {
+        _dealAnim.dealtForSeat[player.seat_index] = (_dealAnim.dealtForSeat[player.seat_index] || 0) + 1;
+        if (player.player_id === _myPid) {
+          _myHandRevealedCount = Math.min(3, _myHandRevealedCount + 1);
+          playCoinDrop();  // 自己翻牌時有聲效
+        }
+        renderState(_state);
+        dealt++;
+        if (dealt === total) {
+          setTimeout(() => {
+            _dealAnim.inProgress = false;
+            _myHandRevealedCount = 3;
+            renderState(_state);
+            if (onComplete) onComplete();
+          }, 400);
+        }
+      });
+    }, delay);
+  });
 }
 
 function playCashRegister() {
