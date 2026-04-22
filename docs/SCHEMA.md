@@ -1128,7 +1128,7 @@ exports.down = pgm => {
 ```sql
 -- ══════════════════════════════════════════════
 -- PostgreSQL 16.x DDL — Sam Gong Database Schema
--- Version: 1.0  Date: 2026-04-22
+-- Version: 1.2  Date: 2026-04-22
 -- ══════════════════════════════════════════════
 
 -- 啟用擴充
