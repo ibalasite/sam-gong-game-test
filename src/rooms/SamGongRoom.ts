@@ -86,6 +86,9 @@ export type Phase = typeof VALID_PHASES[number];
 // 原本 30 秒，改為 15 秒加快遊戲節奏。30s 重連視窗（onLeave）不受此影響。
 export const TURN_TIMEOUT_MS = 15_000;
 
+// BUG-20260422-013：觀察者按下「加入遊戲」前的 60 秒倒數。超時自動踢出房間。
+export const SPECTATOR_KICK_MS = 60_000;
+
 /**
  * SamGongRoom — 三公遊戲 Colyseus Room
  *
@@ -112,6 +115,8 @@ export class SamGongRoom extends Room<SamGongState> {
 
   /** 斷線重連計時器 */
   private disconnectTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  // BUG-20260422-013：每位觀察者各自的 60 秒踢出計時器（key = sessionId）
+  private spectatorKickTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
   /** 等待中房間自動解散計時器 */
   private waitingTimer?: ReturnType<typeof setTimeout>;
@@ -217,6 +222,11 @@ export class SamGongRoom extends Room<SamGongState> {
       this.handleReport(client, message);
     });
 
+    // BUG-20260422-013：觀察者按下「加入遊戲」
+    this.onMessage('join_as_player', (client) => {
+      this.handleJoinAsPlayer(client);
+    });
+
     this.onMessage<AntiAddictionConfirmMessage>('confirm_anti_addiction', (client, message) => {
       // 嚴格驗證 payload：只接受 { type: 'adult' }
       if (!message || message.type !== 'adult') {
@@ -279,15 +289,26 @@ export class SamGongRoom extends Room<SamGongState> {
     player.avatar_url = auth.avatar_url ?? '';
     player.is_connected = true;
     player.is_banker = false;
-    // BUG-20260422-001：中途加入（phase !== 'waiting'）時標記為排隊，
-    // 本局不參與任何行動；resetForNextRound 時清除旗標正式入局。
-    player.is_waiting_next_round = this.state.phase !== 'waiting';
-    if (player.is_waiting_next_round) {
-      player.has_acted = true;  // 避免被 getNextPlayerToAct 選中
-      player.is_folded = false;
-    }
+    // BUG-20260422-013：進房預設為觀察者，按「加入遊戲」才真正入局。
+    // 中途加入 / 非 waiting 階段的排隊旗標延後到 handleJoinAsPlayer 才設定。
+    player.is_spectator = true;
+    player.spectator_deadline_timestamp = Date.now() + SPECTATOR_KICK_MS;
+    player.is_waiting_next_round = false;
+    player.has_acted = true;   // 觀察者不會被 getNextPlayerToAct 選中
+    player.is_folded = false;
 
     this.state.players.set(String(seatIndex), player);
+
+    // 啟動該觀察者的 60 秒踢出計時器
+    const kickTimer = setTimeout(() => {
+      this.spectatorKickTimers.delete(client.sessionId);
+      const latest = this.state.players.get(String(seatIndex));
+      if (latest?.is_spectator) {
+        client.send('kicked', { reason: 'spectator_timeout', message: '60 秒未按加入遊戲，已自動踢出房間' });
+        client.leave(4050);
+      }
+    }, SPECTATOR_KICK_MS);
+    this.spectatorKickTimers.set(client.sessionId, kickTimer);
 
     // 廣播最新 Room State（純 JSON，供 Client 識別玩家列表）
     this.broadcastRoomState();
@@ -330,25 +351,75 @@ export class SamGongRoom extends Room<SamGongState> {
       this.waitingTimer = undefined;
     }
 
-    // BUG-20260422-009：≥ 2 人 → 3 秒倒數再開局（讓玩家看到「遊戲即將開始」提示）
-    if (this.state.players.size >= 2 && this.state.phase === 'waiting') {
-      if (!this.phaseTimers.has('game_start')) {
-        const COUNTDOWN_MS = 3_000;
-        this.state.action_deadline_timestamp = Date.now() + COUNTDOWN_MS;
-        this.broadcastRoomState();
-        const startTimer = setTimeout(() => {
-          this.phaseTimers.delete('game_start');
-          // 倒數結束再次確認：仍有 ≥ 2 人且還在等待中才開局
-          if (this.state.players.size >= 2 && this.state.phase === 'waiting') {
-            this.startNewRound();
-          } else {
-            this.state.action_deadline_timestamp = 0;
-            this.broadcastRoomState();
-          }
-        }, COUNTDOWN_MS);
-        this.phaseTimers.set('game_start', startTimer);
-      }
+    // BUG-20260422-013：進房為觀察者，需按「加入遊戲」才觸發 maybeStartGame。
+    // 這裡不再自動啟動 3 秒倒數。
+  }
+
+  /**
+   * BUG-20260422-013：處理玩家按下「加入遊戲」
+   * - is_spectator → false
+   * - 清除 60 秒踢出計時器
+   * - 若當下不是 waiting 階段 → is_waiting_next_round = true（排隊下一局）
+   * - 若 ≥ 2 位正式玩家在 waiting → 啟動 3 秒遊戲開始倒數
+   */
+  private handleJoinAsPlayer(client: Client): void {
+    const player = this.findPlayerByClient(client);
+    if (!player) return;
+    if (!player.is_spectator) {
+      client.send('error', { code: 'already_joined', message: 'Already joined as player' });
+      return;
     }
+
+    player.is_spectator = false;
+    player.spectator_deadline_timestamp = 0;
+
+    // 清除 60 秒踢出倒數
+    const kickTimer = this.spectatorKickTimers.get(client.sessionId);
+    if (kickTimer) {
+      clearTimeout(kickTimer);
+      this.spectatorKickTimers.delete(client.sessionId);
+    }
+
+    // 中途加入：非 waiting 階段 → 排隊下一局
+    if (this.state.phase !== 'waiting') {
+      player.is_waiting_next_round = true;
+      player.has_acted = true;
+    } else {
+      player.is_waiting_next_round = false;
+      player.has_acted = false;
+    }
+
+    this.broadcastRoomState();
+    this.maybeStartGame();
+  }
+
+  /**
+   * 若有 ≥ 2 位正式玩家（非觀察者、非排隊）在 waiting 階段 → 啟動 3 秒倒數開局
+   */
+  private maybeStartGame(): void {
+    if (this.state.phase !== 'waiting') return;
+    if (this.phaseTimers.has('game_start')) return;
+
+    const activeCount = (Array.from(this.state.players.values()) as PlayerState[])
+      .filter((p) => !p.is_spectator && !p.is_waiting_next_round).length;
+    if (activeCount < 2) return;
+
+    const COUNTDOWN_MS = 3_000;
+    this.state.action_deadline_timestamp = Date.now() + COUNTDOWN_MS;
+    this.broadcastRoomState();
+
+    const startTimer = setTimeout(() => {
+      this.phaseTimers.delete('game_start');
+      const ac = (Array.from(this.state.players.values()) as PlayerState[])
+        .filter((p) => !p.is_spectator && !p.is_waiting_next_round).length;
+      if (ac >= 2 && this.state.phase === 'waiting') {
+        this.startNewRound();
+      } else {
+        this.state.action_deadline_timestamp = 0;
+        this.broadcastRoomState();
+      }
+    }, COUNTDOWN_MS);
+    this.phaseTimers.set('game_start', startTimer);
   }
 
   // ──────────────────────────────────────────────
@@ -365,6 +436,13 @@ export class SamGongRoom extends Room<SamGongState> {
     const playerState = this.findPlayerByAuth(auth);
 
     if (!playerState) return;
+
+    // BUG-20260422-013：若離開的是觀察者，清掉他個人的 60 秒踢出倒數
+    const kickTimer = this.spectatorKickTimers.get(client.sessionId);
+    if (kickTimer) {
+      clearTimeout(kickTimer);
+      this.spectatorKickTimers.delete(client.sessionId);
+    }
 
     if (consented) {
       // 主動離開：即時處理
@@ -456,9 +534,10 @@ export class SamGongRoom extends Room<SamGongState> {
     this.state.phase = 'dealing';
     this.playerHands.clear();
 
-    // BUG-20260422-001：僅現役玩家參與發牌 / 輪莊 / 下注，排除中途加入排隊者
+    // BUG-20260422-001 + 013：僅現役玩家參與發牌 / 輪莊 / 下注，
+    // 排除中途加入排隊者（is_waiting_next_round）與觀察者（is_spectator）
     const players = (Array.from(this.state.players.values()) as PlayerState[])
-      .filter((p) => !p.is_waiting_next_round);
+      .filter((p) => !p.is_waiting_next_round && !p.is_spectator);
 
     // 首局決定莊家
     if (this.state.banker_seat_index === -1) {
@@ -472,9 +551,9 @@ export class SamGongRoom extends Room<SamGongState> {
       p.has_acted = false;
       p.is_folded = false;
     });
-    // 排隊玩家確保不被選為莊家、不被選為行動對象
+    // 排隊玩家 + 觀察者確保不被選為莊家、不被選為行動對象
     (Array.from(this.state.players.values()) as PlayerState[])
-      .filter((p) => p.is_waiting_next_round)
+      .filter((p) => p.is_waiting_next_round || p.is_spectator)
       .forEach((p) => {
         p.is_banker = false;
         p.has_acted = true;
@@ -653,11 +732,12 @@ export class SamGongRoom extends Room<SamGongState> {
    * 取得下一個待行動的閒家 seat_index（-1 = 無）
    */
   private getNextPlayerToAct(): number {
-    // BUG-20260422-001：排除 mid-game join 排隊者（雖然 has_acted=true 已間接排除，仍顯式過濾較清晰）
+    // BUG-20260422-001 + 013：排除中途加入排隊者與觀察者
     const players = (Array.from(this.state.players.values()) as PlayerState[])
       .filter((p) => p.seat_index !== this.state.banker_seat_index
         && !p.has_acted
-        && !p.is_waiting_next_round)
+        && !p.is_waiting_next_round
+        && !p.is_spectator)
       .sort((a, b) => a.seat_index - b.seat_index);
 
     return players.length > 0 ? players[0].seat_index : -1;
@@ -703,11 +783,11 @@ export class SamGongRoom extends Room<SamGongState> {
    * 執行結算
    */
   private executeSettlement(): void {
-    // BUG-20260422-001 regression fix：結算只含本局現役玩家，
-    // 中途加入排隊者（is_waiting_next_round=true）未發牌，必須排除，
+    // BUG-20260422-001 regression fix + 013：結算只含本局現役玩家，
+    // 排除中途加入排隊者（is_waiting_next_round）與觀察者（is_spectator），
     // 否則 SettlementEngine/HandEvaluator 會因空手牌拋 "expected 3 cards, got 0"。
     const players = (Array.from(this.state.players.values()) as PlayerState[])
-      .filter((p) => !p.is_waiting_next_round);
+      .filter((p) => !p.is_waiting_next_round && !p.is_spectator);
     const bankerPlayer = players.find((p) => p.seat_index === this.state.banker_seat_index);
 
     if (!bankerPlayer) {
@@ -921,6 +1001,11 @@ export class SamGongRoom extends Room<SamGongState> {
       client.send('error', { code: 'waiting_next_round', message: 'You joined mid-game; please wait for next round' });
       return;
     }
+    // BUG-20260422-013：觀察者未加入遊戲，不能行動
+    if (player.is_spectator) {
+      client.send('error', { code: 'spectator', message: 'Press JOIN GAME first' });
+      return;
+    }
 
     if (this.state.phase !== 'banker-bet') {
       client.send('error', { code: 'invalid_phase', message: 'Not in banker-bet phase' });
@@ -979,6 +1064,11 @@ export class SamGongRoom extends Room<SamGongState> {
       client.send('error', { code: 'waiting_next_round', message: 'You joined mid-game; please wait for next round' });
       return;
     }
+    // BUG-20260422-013：觀察者未加入遊戲，不能行動
+    if (player.is_spectator) {
+      client.send('error', { code: 'spectator', message: 'Press JOIN GAME first' });
+      return;
+    }
 
     if (this.state.phase !== 'player-bet') {
       client.send('error', { code: 'invalid_phase', message: 'Not in player-bet phase' });
@@ -1015,6 +1105,11 @@ export class SamGongRoom extends Room<SamGongState> {
     // BUG-20260422-001：中途加入排隊玩家不得行動
     if (player.is_waiting_next_round) {
       client.send('error', { code: 'waiting_next_round', message: 'You joined mid-game; please wait for next round' });
+      return;
+    }
+    // BUG-20260422-013：觀察者未加入遊戲，不能行動
+    if (player.is_spectator) {
+      client.send('error', { code: 'spectator', message: 'Press JOIN GAME first' });
       return;
     }
 
@@ -1124,12 +1219,16 @@ export class SamGongRoom extends Room<SamGongState> {
     this.state.players.delete(seatKey);
     this.playerHands.delete(playerState.player_id);
 
-    // BUG-20260422-009：若倒數中有人離場導致 < 2 人，取消遊戲倒數
-    if (this.state.players.size < 2 && this.phaseTimers.has('game_start')) {
-      clearTimeout(this.phaseTimers.get('game_start') as ReturnType<typeof setTimeout>);
-      this.phaseTimers.delete('game_start');
-      this.state.action_deadline_timestamp = 0;
-      this.broadcastRoomState();
+    // BUG-20260422-009 + 013：若倒數中「正式玩家」不足 2 人，取消遊戲開始倒數
+    if (this.phaseTimers.has('game_start')) {
+      const activeCount = (Array.from(this.state.players.values()) as PlayerState[])
+        .filter((p) => !p.is_spectator && !p.is_waiting_next_round).length;
+      if (activeCount < 2) {
+        clearTimeout(this.phaseTimers.get('game_start') as ReturnType<typeof setTimeout>);
+        this.phaseTimers.delete('game_start');
+        this.state.action_deadline_timestamp = 0;
+        this.broadcastRoomState();
+      }
     }
 
     // 若剩餘玩家不足 2 人且在等待中，啟動解散計時器
@@ -1157,6 +1256,8 @@ export class SamGongRoom extends Room<SamGongState> {
       chip_balance: number; is_banker: boolean; is_folded: boolean;
       has_acted: boolean; bet_amount: number;
       is_waiting_next_round: boolean;
+      is_spectator: boolean;
+      spectator_deadline_timestamp: number;
     }> = [];
 
     this.state.players.forEach((p) => {
@@ -1171,6 +1272,9 @@ export class SamGongRoom extends Room<SamGongState> {
         bet_amount: p.bet_amount,
         // BUG-20260422-001：Client 可據此顯示「等待下一局」提示
         is_waiting_next_round: p.is_waiting_next_round,
+        // BUG-20260422-013：觀察者狀態與 60 秒踢出倒數
+        is_spectator: p.is_spectator,
+        spectator_deadline_timestamp: p.spectator_deadline_timestamp,
       });
     });
 

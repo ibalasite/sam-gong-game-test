@@ -95,6 +95,41 @@ input:focus{border-color:var(--gold)}
 .bdg.call{background:rgba(165,214,167,.18);color:#a5d6a7}
 .bdg.fold{background:rgba(239,154,154,.18);color:#ef9a9a}
 .bdg.wait{background:rgba(128,203,196,.15);color:#80cbc4;border:1px dashed rgba(128,203,196,.35)}
+.bdg.spectator{background:rgba(180,180,180,.2);color:#bbb;border:1px dashed rgba(200,200,200,.3)}
+/* 觀察者頭像稍微暗淡 */
+.av.spectator{opacity:.55;border-color:rgba(255,255,255,.2)}
+
+/* BUG-20260422-013：「按我加入遊戲」發光黃色按鈕 + 60 秒倒數 */
+.join-btn{
+  position:absolute; top:calc(100% + 4px); left:50%; transform:translateX(-50%);
+  padding:7px 14px; border-radius:20px;
+  background:linear-gradient(135deg,#ffeb3b,#fbc02d);
+  color:#1a1a1a;
+  border:2px solid #f9a825;
+  font-weight:900; font-size:.85rem;
+  white-space:nowrap; cursor:pointer; z-index:14;
+  box-shadow:0 2px 10px rgba(255,193,7,.55), 0 0 22px rgba(255,235,59,.45);
+  animation:joinGlow 1.2s ease-in-out infinite;
+  text-shadow:0 1px 2px rgba(255,255,255,.35);
+}
+.join-btn:hover{filter:brightness(1.08)}
+.join-btn .join-secs{font-size:.8rem;opacity:.85;margin-left:2px}
+.join-btn.urgent{
+  background:linear-gradient(135deg,#ff6b6b,#c0392b);
+  color:#fff;
+  border-color:#c0392b;
+  box-shadow:0 2px 12px rgba(192,57,43,.7), 0 0 28px rgba(255,107,107,.6);
+  animation:joinGlowUrgent .5s ease-in-out infinite;
+  text-shadow:0 1px 2px rgba(0,0,0,.4);
+}
+@keyframes joinGlow{
+  0%,100%{ box-shadow:0 2px 10px rgba(255,193,7,.55), 0 0 20px rgba(255,235,59,.45); }
+  50%    { box-shadow:0 2px 14px rgba(255,235,59,.85), 0 0 34px rgba(255,235,59,.8); }
+}
+@keyframes joinGlowUrgent{
+  0%,100%{ box-shadow:0 2px 12px rgba(192,57,43,.7), 0 0 28px rgba(255,107,107,.6); }
+  50%    { box-shadow:0 2px 16px rgba(255,107,107,1), 0 0 40px rgba(255,107,107,.9); }
+}
 
 /* BUG-20260422-010：輪到的人頭上顯示明顯倒數 — 金色脈動，<=5s 變紅色急促 */
 .turn-timer{

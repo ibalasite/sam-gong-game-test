@@ -53,8 +53,10 @@ function startCountdownTicker() {
     if (!_state) { stopCountdownTicker(); return; }
     const phase = _state.phase;
     const dl = Number(_state.action_deadline_timestamp || 0);
-    // 只在這三個 phase 有倒數需求
-    const shouldTick = (phase === 'waiting' || phase === 'banker-bet' || phase === 'player-bet') && dl > 0;
+    // BUG-20260422-013：也要在有觀察者時 tick，以更新加入按鈕的 60 秒倒數
+    const hasSpectator = Array.isArray(_state.players) && _state.players.some(p => p.is_spectator);
+    const shouldTick = ((phase === 'waiting' || phase === 'banker-bet' || phase === 'player-bet') && dl > 0)
+      || hasSpectator;
     if (!shouldTick) { stopCountdownTicker(); return; }
     renderState(_state);
   }, 500);
@@ -283,6 +285,11 @@ async function joinGame(forceRoomId) {
     _room.onMessage('send_message_rejected', () => toast('訊息被拒絕','red'));
     _room.onMessage('anti_addiction_warning', d => { toast('⚠️ 防沉迷提示','red',6000); addLog('⚠️ 防沉迷警告','sys'); });
     _room.onMessage('error', d => { toast('❌ '+(d.message||'錯誤'),'red'); addLog('❌ '+(d.message||d.code||''),'sys'); });
+    // BUG-20260422-013：觀察者 60 秒沒按加入 → 被踢出
+    _room.onMessage('kicked', d => {
+      toast('⏰ ' + (d.message || '已被踢出房間'), 'red', 4000);
+      addLog('⏰ 已被踢出房間：' + (d.message || d.reason || ''), 'sys');
+    });
 
     // Schema onStateChange kept only for connection awareness (schema sync unreliable)
     _room.onStateChange(() => { /* state comes via room_state message */ });
@@ -381,8 +388,11 @@ function renderState(s) {
     }
   }
 
-  // BUG-20260422-010：banker-bet / player-bet phase 需要倒數 ticker 驅動頭頂計時器
+  // BUG-20260422-010 + 013：任何計時器（頭頂倒數 / 觀察者 60 秒 / waiting 3 秒）都用同一 ticker
   if ((phase === 'banker-bet' || phase === 'player-bet') && Number(s.action_deadline_timestamp || 0) > Date.now()) {
+    startCountdownTicker();
+  }
+  if (Array.isArray(s.players) && s.players.some(p => p.is_spectator)) {
     startCountdownTicker();
   }
 
@@ -495,8 +505,8 @@ function renderState(s) {
       }
     }
 
-    // BUG-20260422-010：中途加入排隊者不在本局 —— 任何 phase 都不顯示牌
-    if (p.is_waiting_next_round) {
+    // BUG-20260422-010 + 013：中途加入排隊者 / 觀察者不在本局 —— 任何 phase 都不顯示牌
+    if (p.is_waiting_next_round || p.is_spectator) {
       cards = [];
       reveal = false;
       dealtCount = 0;
@@ -517,7 +527,9 @@ function renderState(s) {
 
     // Badge
     let badge = '';
-    if (p.is_waiting_next_round) {
+    if (p.is_spectator) {
+      badge = '<span class="bdg spectator">👁 觀察中</span>';   // BUG-20260422-013
+    } else if (p.is_waiting_next_round) {
       badge = '<span class="bdg wait">⏳ 等待下一局</span>';   // BUG-20260422-010
     } else if (p.is_folded) {
       badge = '<span class="bdg fold">棄牌</span>';
@@ -531,7 +543,7 @@ function renderState(s) {
 
     // BUG-20260422-010：輪到的人頭上顯示明顯倒數（大家都看得到，知道在等誰）
     let turnTimer = '';
-    const isMyTurn = !p.is_waiting_next_round && !p.is_folded && (
+    const isMyTurn = !p.is_waiting_next_round && !p.is_spectator && !p.is_folded && (
       (phase === 'banker-bet' && p.is_banker) ||
       (phase === 'player-bet' && seatIdx === s.current_player_turn_seat && !p.has_acted)
     );
@@ -541,6 +553,19 @@ function renderState(s) {
         const secsLeft = Math.max(0, Math.ceil((dl - Date.now()) / 1000));
         const urgent = secsLeft <= 5 ? ' urgent' : '';
         turnTimer = `<div class="turn-timer${urgent}">⏱ ${secsLeft}</div>`;
+      }
+    }
+
+    // BUG-20260422-013：觀察者（當下是「我」才顯示可點擊按鈕；其他人看到發光提示）
+    let joinBtn = '';
+    if (p.is_spectator) {
+      const sd = Number(p.spectator_deadline_timestamp || 0);
+      const secs = sd > 0 ? Math.max(0, Math.ceil((sd - Date.now()) / 1000)) : 60;
+      const urgent = secs <= 10 ? ' urgent' : '';
+      if (isMe) {
+        joinBtn = `<button class="join-btn${urgent}" data-join-me="1">🟡 按我加入遊戲 <span class="join-secs">(${secs})</span></button>`;
+      } else {
+        joinBtn = `<div class="join-btn${urgent}" style="cursor:default">🟡 觀察中 <span class="join-secs">(${secs})</span></div>`;
       }
     }
 
@@ -565,11 +590,18 @@ function renderState(s) {
       ${bubble}
       ${turnTimer}
       ${evalLbl}
-      <div class="av${isBanker?' bnkav':''}${isMe?' meav':''}">${isBanker?'👑':isMe?'😊':'👤'}</div>
+      <div class="av${isBanker?' bnkav':''}${isMe?' meav':''}${p.is_spectator?' spectator':''}">${p.is_spectator?'👁':isBanker?'👑':isMe?'😊':'👤'}</div>
       <div class="sname">${esc(p.display_name||'玩家')}</div>
       <div class="schips">🪙 ${(p.chip_balance||0).toLocaleString()}</div>
       <div class="hand">${handHTML(cards, reveal, dealtCount)}</div>
-      <div class="sbdg">${badge}</div>`;
+      <div class="sbdg">${badge}</div>
+      ${joinBtn}`;
+
+    // 綁定「加入遊戲」按鈕（僅在 isMe 且 is_spectator 時渲染為 button）
+    if (p.is_spectator && isMe) {
+      const btn = box.querySelector('.join-btn[data-join-me]');
+      if (btn) btn.addEventListener('click', () => { _room?.send('join_as_player'); });
+    }
   }
 
   renderActions(s, me);
