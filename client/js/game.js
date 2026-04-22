@@ -37,6 +37,11 @@ let _prevPot        = 0;
 let _prevActedSeats = new Set();
 let _prevPhase      = '';
 let _lastBetAnimAt  = 0;   // timestamp of last coin-to-pot animation (ms)
+// BUG-20260422-003：發牌動畫狀態
+// _dealAnim.inProgress：動畫中（隱藏手牌，依序飛入）
+// _dealAnim.dealtForSeat：{seat_index: 已飛到的張數（0-3）}，用於逐張呈現
+let _dealAnim = { inProgress: false, dealtForSeat: {} };
+let _myHandRevealedCount = 0;   // 自己手牌已翻面的張數（0-3）
 // Auto-act (auto-call / auto-min-bet)
 let _autoActTimer   = null;
 let _autoActAt      = 0;   // ms timestamp when auto-act countdown started
@@ -151,12 +156,20 @@ function cardHTML(str, back) {
   const red = suit==='♥'||suit==='♦';
   return `<div class="card ${red?'r':'b'}"><span>${rank}</span><span>${suit}</span></div>`;
 }
-function handHTML(cards, reveal) {
+// BUG-20260422-003：handHTML 支援 dealtCount（發牌動畫用）
+// dealtCount = undefined → 一律顯示 3 張（原有行為）
+// dealtCount = 0..3 → 前 dealtCount 張顯示（視 reveal 決定正反面），後面顯示 ghost 佔位
+function handHTML(cards, reveal, dealtCount) {
   const list = Array.isArray(cards) ? cards : [];
+  const shown = (typeof dealtCount === 'number') ? dealtCount : 3;
   let h = '';
   for (let i=0; i<3; i++) {
-    const str = list[i] ? cardToStr(list[i]) : null;
-    h += cardHTML(str, !reveal || !str);
+    if (i >= shown) {
+      h += '<div class="card ghost"></div>';  // 尚未發到這張
+    } else {
+      const str = list[i] ? cardToStr(list[i]) : null;
+      h += cardHTML(str, !reveal || !str);
+    }
   }
   return h;
 }
@@ -204,8 +217,19 @@ async function joinGame(forceRoomId) {
 
     // Private hand — {cards:[{value,suit,point},…]}
     _room.onMessage('myHand', d => {
-      _myHand = d.cards || [];
-      renderState(_state);
+      const newHand = d.cards || [];
+      // BUG-20260422-003：僅當這是新一局的新手牌時觸發發牌動畫
+      // 動畫中收到 myHand（極罕見 race condition）不重啟動畫
+      const isFreshDeal = !_dealAnim.inProgress
+        && newHand.length === 3
+        && (_myHand.length === 0 || newHand.some((c, i) => !_myHand[i] || cardToStr(c) !== cardToStr(_myHand[i])));
+      _myHand = newHand;
+      if (isFreshDeal && _state && Array.isArray(_state.players) && _state.players.length >= 2) {
+        startDealAnimation();
+      } else {
+        _myHandRevealedCount = 3;
+        renderState(_state);
+      }
     });
 
     // Showdown reveal — {hands:{…}, hand_types:{…}}
@@ -374,6 +398,8 @@ function renderState(s) {
 
     // Card visibility logic
     let cards = [], reveal = false;
+    // BUG-20260422-003：發牌動畫中，每個座位只顯示已飛到的張數
+    let dealtCount; // undefined = 顯示 3 張（原行為）
     if (phase === 'showdown') {
       if (revealed && _revealedHands[String(seatIdx)]) {
         cards = _revealedHands[String(seatIdx)]; reveal = true;
@@ -389,6 +415,22 @@ function renderState(s) {
       }
     } else {
       if (isMe && _myHand.length > 0) { cards = _myHand; reveal = true; }
+    }
+
+    // 發牌動畫：限制此座位顯示張數
+    if (_dealAnim.inProgress) {
+      const arrived = _dealAnim.dealtForSeat[seatIdx] || 0;
+      dealtCount = arrived;
+      if (isMe) {
+        // 自己：只顯示已翻面的張數為「face-up」，其餘先不渲染（等動畫飛到才出現）
+        cards = (_myHand || []).slice(0, _myHandRevealedCount);
+        reveal = true;
+        dealtCount = _myHandRevealedCount;
+      } else {
+        // 其他玩家：顯示 arrived 張 face-down（由 cardHTML back 處理）
+        cards = new Array(arrived).fill(null);
+        reveal = false;
+      }
     }
 
     // Hand-type label — 放在頭像上方
@@ -439,7 +481,7 @@ function renderState(s) {
       <div class="av${isBanker?' bnkav':''}${isMe?' meav':''}">${isBanker?'👑':isMe?'😊':'👤'}</div>
       <div class="sname">${esc(p.display_name||'玩家')}</div>
       <div class="schips">🪙 ${(p.chip_balance||0).toLocaleString()}</div>
-      <div class="hand">${handHTML(cards, reveal)}</div>
+      <div class="hand">${handHTML(cards, reveal, dealtCount)}</div>
       <div class="sbdg">${badge}</div>`;
   }
 
@@ -495,7 +537,13 @@ function startShowdownSequence() {
   _sdDone = false;
   _sdWinnerSeats = new Set();
 
-  const seats = Object.keys(_revealedHands).map(Number).sort((a, b) => a - b);
+  // BUG-20260422-003：閒家先依座位順序亮牌，莊家最後亮牌決定輸贏（增加刺激感）
+  const bankerSeat = _state?.banker_seat_index;
+  const allSeats = Object.keys(_revealedHands).map(Number);
+  const playerSeats = allSeats.filter(s => s !== bankerSeat).sort((a, b) => a - b);
+  const seats = bankerSeat != null && allSeats.includes(bankerSeat)
+    ? [...playerSeats, bankerSeat]
+    : playerSeats;
   if (!seats.length) { _sdDone = true; renderState(_state); return; }
 
   const interval = Math.min(1300, 3000 / seats.length);
@@ -662,6 +710,101 @@ function flyCoins(fromEl, toEl, count) {
     }));
 
     setTimeout(() => coin.remove(), stagger + dur + 300);
+  }
+}
+
+// BUG-20260422-003：發牌動畫 — 從莊家位置飛一張撲克牌到目標位置
+function flyCard(fromEl, toEl, onLand) {
+  if (!fromEl || !toEl) { if (onLand) setTimeout(onLand, 0); return; }
+  const fr = fromEl.getBoundingClientRect();
+  const tr = toEl.getBoundingClientRect();
+  if (!fr.width || !tr.width) { if (onLand) setTimeout(onLand, 0); return; }
+
+  const fx = fr.left + fr.width / 2;
+  const fy = fr.top  + fr.height / 2;
+  const tx = tr.left + tr.width / 2;
+  const ty = tr.top  + tr.height / 2;
+
+  const card = document.createElement('div');
+  card.className = 'fly-card';
+  card.textContent = '🂠';
+  card.style.cssText = `position:fixed;left:${fx}px;top:${fy}px;`;
+  document.body.appendChild(card);
+
+  const dur = 420;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    card.style.transition = `transform ${dur}ms cubic-bezier(.25,.46,.45,.94), opacity 160ms ease ${dur - 160}ms`;
+    card.style.transform = `translate(${tx-fx}px,${ty-fy}px) rotate(380deg) scale(.65)`;
+    card.style.opacity = '0';
+  }));
+  setTimeout(() => { card.remove(); if (onLand) onLand(); }, dur + 20);
+}
+
+// BUG-20260422-003：開始發牌動畫
+// - 從莊家座位順時鐘發牌（banker+1, banker+2, ..., banker 自己最後）
+// - 每位玩家共 3 張，分 3 輪；每張間隔 CARD_DELAY ms
+// - 牌飛到自己座位時，自己對應的手牌翻面（revealedCount++）
+// - 動畫結束後 _dealAnim.inProgress = false；後續渲染恢復完整
+function startDealAnimation(onComplete) {
+  if (!_state || !Array.isArray(_state.players) || _state.players.length === 0) {
+    if (onComplete) onComplete();
+    return;
+  }
+  const positions = ['s-bot','s-bl','s-tl','s-top','s-tr','s-br'];
+  const bankerSeat = _state.banker_seat_index;
+
+  // ordered = me-first；對照發牌座位 index
+  const all = _state.players.slice();
+  const meP = _myPid ? all.find(p => p.player_id === _myPid) : all[0] || null;
+  const ordered = meP ? [meP, ...all.filter(p => p !== meP)] : all.slice();
+  const bankerOrderedIdx = ordered.findIndex(p => p.seat_index === bankerSeat);
+  const bankerEl = bankerOrderedIdx >= 0 ? $(positions[bankerOrderedIdx]) : null;
+  if (!bankerEl) { if (onComplete) onComplete(); return; }
+
+  // 發牌順序：依 seat_index 由莊家 +1 開始順時鐘，莊家最後
+  const bySeat = all.slice().sort((a, b) => a.seat_index - b.seat_index);
+  const startPos = bySeat.findIndex(p => p.seat_index === bankerSeat);
+  const dealQueue = [];
+  for (let i = 1; i <= bySeat.length; i++) {
+    dealQueue.push(bySeat[(startPos + i) % bySeat.length]);
+  }
+  // dealQueue 最後一位 = 莊家
+
+  _dealAnim.inProgress = true;
+  _dealAnim.dealtForSeat = {};
+  bySeat.forEach(p => { _dealAnim.dealtForSeat[p.seat_index] = 0; });
+  _myHandRevealedCount = 0;
+  renderState(_state);
+
+  const CARD_DELAY = 140;  // 每張牌間隔
+  const total = dealQueue.length * 3;
+  let dealt = 0;
+
+  for (let round = 0; round < 3; round++) {
+    dealQueue.forEach((player, j) => {
+      const delay = (round * dealQueue.length + j) * CARD_DELAY;
+      const toOrderedIdx = ordered.findIndex(q => q.seat_index === player.seat_index);
+      const toEl = toOrderedIdx >= 0 ? $(positions[toOrderedIdx]) : null;
+      setTimeout(() => {
+        flyCard(bankerEl, toEl, () => {
+          _dealAnim.dealtForSeat[player.seat_index] = (_dealAnim.dealtForSeat[player.seat_index] || 0) + 1;
+          if (player.player_id === _myPid) {
+            _myHandRevealedCount = Math.min(3, _myHandRevealedCount + 1);
+            playCoinDrop();  // 自己翻牌時有聲效
+          }
+          renderState(_state);
+          dealt++;
+          if (dealt === total) {
+            setTimeout(() => {
+              _dealAnim.inProgress = false;
+              _myHandRevealedCount = 3;
+              renderState(_state);
+              if (onComplete) onComplete();
+            }, 280);
+          }
+        });
+      }, delay);
+    });
   }
 }
 

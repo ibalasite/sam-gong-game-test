@@ -2210,6 +2210,25 @@ room.state.settlement.winners.forEach((winner) => {
 
 ## 變更追蹤
 
+### BUG-20260422-003：結算亮牌順序 + 發牌動畫 + 自己手牌逐張翻開
+- **狀態**：✅ DONE
+- **分類**：BUG / 工程
+- **日期**：2026-04-22
+- **描述**：
+  1. 結算開牌順序應為「閒家先全部開完後，莊家最後亮牌決定輸贏」，增加刺激感。之前 `startShowdownSequence` 以 seat_index 升序亮牌，莊家不一定最後。
+  2. 發牌階段應呈現「莊家依順時鐘逐張飛牌到每位閒家（含自己），共 3 輪」的 round-table 動畫，而非牌直接面朝下出現。
+  3. 自己的手牌要一張張飛進來後翻面，而非 3 張同時顯示。
+- **影響範圍**：`client/js/game.js` startShowdownSequence 排序；新增 `_dealAnim` 狀態、`flyCard`、`startDealAnimation`；`handHTML` 接受 `dealtCount` 參數；`myHand` 訊息處理；`client/css/style.css` 新增 `.fly-card` 與 `.card.ghost` 樣式
+- **修正/實作內容**：
+  1. `startShowdownSequence` 把莊家 seat 從排序中排出，再 append 至末；其他閒家照 seat_index 升序
+  2. 新增 `flyCard(fromEl, toEl, onLand)` — 從來源位置飛出 🂠 卡背，420ms 帶旋轉與淡出
+  3. 新增 `startDealAnimation()`：莊家為原點，依順時鐘（banker+1 開始，莊家最後）3 輪發牌；每張間隔 140ms；每位玩家累計 3 張；飛到「自己」座位時增加 `_myHandRevealedCount`（逐張翻面 + coin drop 音效）
+  4. `handHTML(cards, reveal, dealtCount)` — 支援限制顯示張數；未飛到的位置用 `.card.ghost` 佔位保留 layout 寬度
+  5. render 邏輯在 `_dealAnim.inProgress` 時：自己只顯示 `_myHandRevealedCount` 張 face-up，其他玩家顯示 `dealtForSeat[seat]` 張 face-down
+  6. `myHand` 訊息處理判斷是否為新一局（比對舊手牌不同）才觸發動畫；重連或 race condition 不會重播
+- **commit**：（此提交）
+- **完成日期**：2026-04-22
+
 ### BUG-20260422-001：押注/跟注 CMP-012 自動押注 checkbox 預設不勾選
 - **狀態**：✅ DONE
 - **分類**：BUG / 工程
