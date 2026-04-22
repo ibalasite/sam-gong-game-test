@@ -637,6 +637,16 @@ function renderState(s) {
 
   renderActions(s, me);
   updateActionMarquee(s, me);
+
+  // BUG-20260422-016：依目前 state 更新離開按鈕的可用性與視覺
+  const leaveBtn = document.querySelector('.leavebtn');
+  if (leaveBtn) {
+    const allowed = canLeaveRoom();
+    leaveBtn.disabled = !allowed;
+    leaveBtn.style.opacity = allowed ? '1' : '.35';
+    leaveBtn.style.cursor = allowed ? 'pointer' : 'not-allowed';
+    leaveBtn.title = allowed ? '離開房間' : '籌碼押注中，結算後才能離開';
+  }
 }
 
 // 更新操作面板收合時的跑馬燈文字 — 把本局關鍵訊息濃縮成一行滾動
@@ -1274,8 +1284,26 @@ function sendChat() {
 }
 
 // ── Leave ─────────────────────────────────────────────────
+// BUG-20260422-016：規則 — 只有「自己沒有出錢 OR 沒有莊家下注」時才能離開。
+// 籌碼押注中離開會造成棄牌損失，且對其他玩家不禮貌。
+// 特例：phase='settled' 也允許離開（本局已結算，錢已分配）
+function canLeaveRoom() {
+  if (!_room || !_state) return true;
+  const phase = _state.phase;
+  if (phase === 'waiting' || phase === 'settled') return true;
+  const me = _myPid ? (_state.players || []).find(p => p.player_id === _myPid) : null;
+  if (!me) return true;
+  // 自己沒有出錢 或 莊家還沒下注 → 可安全離開
+  return (me.bet_amount || 0) === 0 || (_state.banker_bet_amount || 0) === 0;
+}
+
 function leaveGame() {
+  if (!canLeaveRoom()) {
+    toast('❌ 籌碼押注中，結算後才能離開', 'red', 2500);
+    return;
+  }
   if (!confirm('確定離開房間？')) return;
+  cancelAutoAct();   // BUG-20260422-016：取消任何進行中的自動行動
   _room?.leave(); _room=null;
   _myHand=[]; _revealedHands={};
   _state = { phase:'waiting', current_pot:0, players:[], hall_name:'青銅廳',
