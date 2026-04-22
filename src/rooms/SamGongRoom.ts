@@ -393,13 +393,18 @@ export class SamGongRoom extends Room<SamGongState> {
     const bankerPlayer = Array.from(this.state.players.values())
       .find((p) => p.seat_index === this.state.banker_seat_index);
 
-    if (bankerPlayer) {
-      // 若莊家籌碼不足最低注，取其現有餘額（不讓 chip_balance 為負）
-      const autoBetAmount = Math.min(this.state.min_bet, bankerPlayer.chip_balance);
-      this.state.banker_bet_amount = autoBetAmount;
-      bankerPlayer.bet_amount = autoBetAmount;
-      bankerPlayer.chip_balance -= autoBetAmount;
+    if (!bankerPlayer) {
+      // 莊家已離場，回到等待階段（避免以 banker_bet_amount=0 繼續遊戲）
+      console.warn('[SamGongRoom] handleAutoMinBet: banker not found, aborting round');
+      this.state.phase = 'waiting';
+      return;
     }
+
+    // 若莊家籌碼不足最低注，取其現有餘額（不讓 chip_balance 為負）
+    const autoBetAmount = Math.min(this.state.min_bet, bankerPlayer.chip_balance);
+    this.state.banker_bet_amount = autoBetAmount;
+    bankerPlayer.bet_amount = autoBetAmount;
+    bankerPlayer.chip_balance -= autoBetAmount;
 
     this.startPlayerBetPhase();
   }
