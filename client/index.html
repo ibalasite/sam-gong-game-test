@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>三公 Sam Gong — 多人撲克</title>
+  <link rel="stylesheet" href="css/style.css">
+
+  <!-- Colyseus JS client SDK -->
+  <script src="https://unpkg.com/colyseus.js@0.15.21/dist/colyseus.js"></script>
+</head>
+<body>
+
+  <!-- ── Login Screen ─────────────────────────────── -->
+  <div id="login-screen" class="screen">
+    <div class="login-box">
+      <div class="game-title">三公</div>
+      <div class="game-subtitle">Sam Gong — Multiplayer Card Game</div>
+
+      <input type="text" id="nick-input" placeholder="輸入暱稱（可留空自動產生）" maxlength="20" autofocus>
+
+      <button class="btn btn-primary" onclick="devJoin()">🎴 進入遊戲</button>
+
+      <div class="status-msg" id="status-msg">正在檢查伺服器...</div>
+
+      <div style="border-top:1px solid rgba(255,255,255,0.1);padding-top:12px;font-size:0.75rem;color:#666;text-align:center">
+        本機開發版 — 連接至 ws://localhost:2567
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Game Screen ───────────────────────────────── -->
+  <div id="game-screen" class="screen"></div>
+
+  <!-- Global toast + connection bar -->
+  <div class="toast-container" id="toast-container"></div>
+  <div class="conn-bar">
+    <span>
+      <span class="conn-dot connecting" id="conn-dot"></span>
+      <span id="conn-label">連線中...</span>
+    </span>
+    <span style="color:#444">Sam Gong v1.0 · Local Dev</span>
+  </div>
+
+  <script src="js/game.js"></script>
+</body>
+</html>
