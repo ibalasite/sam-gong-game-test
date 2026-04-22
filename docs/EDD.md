@@ -27,6 +27,7 @@
 |------|------|------|---------|
 | v1.0-draft | 2026-04-22 | /devsop-autodev STEP-07 | 初稿；依 PRD v0.14 + BRD v0.12 + PDD v0.2 生成；涵蓋系統架構、Colyseus Room 設計、完整 TypeScript Schema、狀態機、結算引擎、REST API、PostgreSQL DDL、Redis 使用、安全架構、k8s 部署、可觀測性、可行性評估 |
 | v1.1-draft | 2026-04-22 | STEP-08 Review Round 5 | 修復 18 個 findings：F1 HPA scaleDown + preStop；F2 HPA CPU-only觸發/CCU告警對齊；F3 Colyseus health probe；F4 rescue-chip條件統一/typo修正；F5 CSRF說明；F6 CORS策略；F7 SQL Injection防護+Semgrep；F8 WS Close Code表；F9 統一ErrorResponse Schema；F10 Error Code枚舉；F11 環境變數清單；F12 chip_transactions分區；F13 Replica pgBouncer；F14 SLO定義；F15 覆蓋率+Auto-rollback；F16 Alertmanager規則；F17 Colyseus Monitor安全；F18 API版本策略 |
+| v1.2-draft | 2026-04-22 | STEP-08 Review Round 6 | 修復 10 個 findings：F1 onDispose欄位對齊DDL（rake_total→rake_amount/player_count說明/tier說明）；F2 PlayerState.session_id移除@type裝飾器（Server-only）；F3 players MapSchema key說明與onMessage反查模式；F4 resetForNextRound()方法補充；F5 封號後WebSocket即時踢出Pub/Sub機制；F6 多裝置登入4005踢出機制；F7 show_in_leaderboard=false Redis ZSET過濾說明；F8 測試策略（Colyseus Testing/E2E Fixtures/Mock策略）；F9 all_fold 2人桌邊界條件；F10 chip_balance Open Information設計說明 |
 
 ---
 
@@ -278,7 +279,8 @@ onMessage
   → 違規記錄日誌 + 返回 error 訊息
 
 onDispose
-  → 寫入 game_sessions（room_id, tier, player_count, rake_total, ended_at）
+  → 寫入 game_sessions（room_id, round_number, banker_id, banker_seat_index, banker_bet_amount, rake_amount, pot_amount, banker_insolvent, all_fold, settlement_payload, started_at, ended_at）
+  → 注意：player_count 從 this.state.players.size 推導，不單獨寫入 DB；廳別（tier）記錄於 game_rooms 表，不重複寫入 game_sessions
   → 清理所有 setTimeout
   → 釋放 Redis Presence
 ```
@@ -325,9 +327,18 @@ export class SettlementState extends Schema {
 // ──── 玩家狀態 ────
 export class PlayerState extends Schema {
   @type('string') player_id: string;
-  @type('string') session_id: string;
+  // session_id 為 Server-only 欄位，不加 @type 裝飾，不廣播至 Client。
+  // Client 識別自身 session 使用連線建立時 Server 推送的私人訊息：
+  // { type: 'my_session_info', session_id, player_id }
+  session_id: string;
   @type('number') seat_index: number;
-  @type('number') chip_balance: number;  // 即時餘額（含 escrow 預扣後）
+  // chip_balance 廣播策略（Open Information 設計）：
+  // 本遊戲採用「開放籌碼」設計，所有玩家的 chip_balance 對房間內其他玩家可見（廣播至 Client Schema）。
+  // 設計理由：增加遊戲策略性（玩家可根據對手籌碼調整跟注策略）；三公遊戲中莊家設定的
+  // banker_bet 本身就受自身籌碼限制，公開籌碼不會產生額外資訊優勢。
+  // 若未來版本需要隱藏籌碼，可使用 Colyseus FilteredRoom（State Filtering）機制，
+  // 為不同玩家提供不同的 State 視圖。
+  @type('number') chip_balance: number;  // 即時餘額（含 escrow 預扣後）；公開可見（Open Information 設計）
   @type('number') bet_amount: number = 0; // 本局下注額（Fold 時為 0）
   @type('boolean') is_connected: boolean = true;
   @type('boolean') is_folded: boolean = false;
@@ -406,6 +417,17 @@ export class SamGongState extends Schema {
   // 不在 Room State（避免不同玩家的計時資訊互相可見）
 }
 ```
+
+**players MapSchema Key 設計與身份驗證：**
+
+players MapSchema 的 key 為 `seat_index.toString()`（`'0'`, `'1'`, ..., `'5'`）。在 onMessage Handler 中，**不可用 `client.sessionId` 直接索引** players map（key 為 seat_index，非 sessionId）。應透過以下方式反查 PlayerState：
+
+```typescript
+const playerState = Array.from(this.state.players.values())
+  .find(p => p.player_id === client.auth.player_id);
+```
+
+注意：`client.auth.player_id` 來自 onJoin 時驗證的 JWT payload，`client.sessionId` 為 Colyseus 內部連線識別碼，兩者用途不同。
 
 **手牌隔離機制：**
 
@@ -672,8 +694,16 @@ export class SettlementEngine {
 
     // ── 全員棄牌（all_fold）──
     // pot = 0, rake = 0
-    // 莊家底注退回（escrow 釋放）
+    // 莊家底注退回（escrow 釋放）：banker_chip_balance += banker_bet_amount
     // 所有玩家 net_chips = 0
+    //
+    // 邊界條件：2 人桌唯一閒家 Fold（all_fold 最常見情境）
+    // - caller_count = 0, pot = 0, rake = 0
+    // - 莊家 escrow 退回：banker_chip_balance += banker_bet_amount（退回預扣）
+    // - 所有玩家 net_chips = 0
+    // - settlement ArraySchema 記錄每個閒家 is_folded=true, net_chips=0, payout_amount=0
+    // - 此情境觸發「莊家自動獲勝」邏輯，不呼叫 HandEvaluator（無需比牌）
+    // 注意：pot=0 時 Step 6b rake 守衛確保 rake=0（不適用最少 1 籌碼規則）
 
     // ── 籌碼守恆驗證 ──
     // assert: sum(net_chips) + rake_amount === 0
@@ -750,6 +780,34 @@ class TutorialScriptEngine {
   //     player_hands: { 'P1': ['3♣','K♠','Q♥'] }（3+0+0=3pt）→ 展示普通比點 5pt > 3pt，banker_win
   // R3: banker=['2♠','4♥','K♦']（6pt）
   //     player_hands: { 'P1': ['6♣','K♠','Q♥'] }（6+0+0=6pt, force_tie）→ 展示平局概念
+}
+```
+
+**resetForNextRound（新一局 State 重置）：**
+
+在 `settled → dealing` 轉換時（5 秒後）呼叫，確保下一局以乾淨狀態開始：
+
+```typescript
+// 在 SamGongRoom 內（settled → dealing 轉換，5 秒後）
+private resetForNextRound(): void {
+  // PlayerState 重置（保留 is_banker、chip_balance、player_id）
+  this.state.players.forEach((player) => {
+    player.bet_amount = 0;
+    player.has_acted = false;
+    player.is_folded = false;
+    player.hand = new ArraySchema<string>(); // 清空手牌（Server-only 欄位）
+  });
+
+  // RoomState 重置
+  this.state.banker_bet_amount = 0;
+  this.state.current_pot = 0;
+  this.state.action_deadline_timestamp = 0;
+  this.state.current_player_turn_seat = -1;
+  this.state.settlement = new SettlementState(); // 清空結算結果
+
+  // 輪莊（由 BankerRotation 計算）
+  this.bankerRotation.advance();
+  this.state.banker_seat_index = this.bankerRotation.currentBankerSeat;
 }
 ```
 
@@ -987,6 +1045,57 @@ Token 驗證時：
   - 封號後的舊 Access Token（TTL ≤ 1h）仍在有效期，但帳號狀態 is_banned=true
   - 下次請求時，DB 查詢帳號狀態 is_banned=true → 401
   - 實際上 60s 的黑名單覆蓋了最敏感的即時封號窗口
+```
+
+**同帳號多裝置登入處理（Close Code 4005）：**
+
+```
+同帳號多裝置登入偵測流程：
+1. JWT 登入成功後：
+   Redis SET active_device:{player_id} {device_id+session_token}（TTL = refresh_token 有效期）
+2. 下一個裝置登入時，若 active_device:{player_id} 存在：
+   Redis PUBLISH sam-gong:admin:force_disconnect_device "{player_id}:{old_session_token}"
+3. 各 Colyseus Pod 收到後：
+   找到對應舊裝置 client → client.leave(4005)（WS Close Code 4005：重複登入）
+4. 更新 Redis active_device:{player_id} 為新裝置資訊
+
+注意（業務規則）：
+- 本規格：同一帳號允許多裝置瀏覽大廳（Lobby），但同一 Room 禁止重複加入
+  （由 Colyseus 原生 rejoinOrCreate 處理，同 sessionId 不可重複加入同一 Room）
+- 多裝置踢出（4005）為 Optional 功能，依業務需求決定是否啟用
+- Client 收到 Close Code 4005 時：顯示「其他裝置已登入」提示，清除本地 token
+```
+
+**封號後 Active WebSocket 連線即時踢出機制：**
+
+Admin `POST /api/v1/admin/player/:id/ban` 執行後，除 REST API 封鎖外，必須即時踢出該玩家的所有 Active WebSocket 連線：
+
+```
+封號流程（完整）：
+1. 更新 DB is_banned = true
+2. SETEX block:{player_id} 60 "1"   ← 60s JWT 黑名單
+3. DEL session:{player_id}            ← 強制 Session Cache 失效
+4. Pub/Sub 踢出機制：
+   Redis PUBLISH sam-gong:admin:force_disconnect "{player_id}"
+
+各 Colyseus Pod 訂閱 sam-gong:admin:force_disconnect 頻道：
+  - 收到後：在本 Pod 內找到 player_id 對應的 client
+  - 呼叫 client.leave(4001)（WS Close Code 4001：封號/Token 失效）
+```
+
+Redis Pub/Sub 訂閱於 `SamGongRoom.onCreate()` 中初始化，或於 Colyseus Server 全局初始化（推薦全局，避免每個 Room 重複訂閱）：
+
+```typescript
+// server/src/index.ts（全局初始化）
+const subscriber = redis.duplicate();
+subscriber.subscribe('sam-gong:admin:force_disconnect');
+subscriber.on('message', (_channel, player_id) => {
+  // 遍歷所有 Room，找到對應 client 踢出
+  gameServer.presence.query(/* all rooms */).forEach(room => {
+    const client = room.clients.find(c => c.auth?.player_id === player_id);
+    if (client) client.leave(4001);
+  });
+});
 ```
 
 ### 4.6 Rate Limiting Implementation
@@ -1453,7 +1562,7 @@ CREATE INDEX idx_player_reports_status ON player_reports(status) WHERE status = 
 | Rate Limit（敏感端點） | `rl:sensitive:{player_id}` | String（計數）| 60s | 每帳號每分鐘 ≤ 5 |
 | Rate Limit（一般 API） | `rl:general:{player_id}` | String（計數）| 60s | 每帳號每分鐘 ≤ 60 |
 | Rate Limit（IP 全局） | `rl:global:{ip}` | String（計數）| 60s | 每 IP 每分鐘 ≤ 300 |
-| Leaderboard Sorted Set | `lb:weekly:{week_key}` | ZSET（score=net_chips）| 8 天 | O(log N) 排名查詢 |
+| Leaderboard Sorted Set | `lb:weekly:{week_key}` | ZSET（score=net_chips）| 8 天 | O(log N) 排名查詢。`show_in_leaderboard=false` 處理：(1) 玩家設定更新（PUT /api/v1/player/profile `show_in_leaderboard=false`）時同時執行 `ZREM lb:weekly:{week_key} {player_id}`；(2) 後續每局結算後，不執行 ZADD（跳過排行榜更新）；(3) GET /api/v1/leaderboard 回應前，應用層額外查詢 players 表 `show_in_leaderboard` 欄位過濾（雙重保護）；(4) 每週歸檔排程（leaderboard_weekly cron）同樣過濾此欄位。 |
 | Matchmaking Queue | `mm:queue:{tier_name}` | List / Sorted Set | 90s（隊列項目）| 配對等待佇列 |
 | Colyseus Room Presence | `colyseus:presence:{room_id}` | Hash | 由 Colyseus 管理 | 跨節點房間狀態協調 |
 | OTP 每日計數 | `otp:daily:{phone_hash}:{date}` | String（計數）| 24h | 每手機號每日 ≤ 5 次 OTP |
@@ -1882,6 +1991,52 @@ jest --coverage --coverageThreshold='{"global":{"lines":80,"branches":80,"functi
 - health check 失敗率 > 30%
 
 回滾命令：`kubectl rollout undo deployment/sam-gong-api`
+
+### 8.4 Testing Strategy
+
+**Colyseus Room 單元測試：**
+
+使用 `@colyseus/testing` 套件，`ColyseusTestServer.create(SamGongRoom)` 建立測試環境，模擬多個 Client 連線與訊息交換：
+
+```typescript
+// tests/unit/SamGongRoom.test.ts
+import { ColyseusTestServer, boot } from '@colyseus/testing';
+import { SamGongRoom } from '../../server/src/rooms/SamGongRoom';
+
+describe('SamGongRoom', () => {
+  let colyseus: ColyseusTestServer;
+  beforeAll(async () => { colyseus = await boot(SamGongRoom); });
+  afterAll(async () => { await colyseus.shutdown(); });
+
+  it('should settle correctly with 2 players', async () => {
+    const room = await colyseus.createRoom('sam_gong', {});
+    const client1 = await colyseus.connectTo(room);
+    const client2 = await colyseus.connectTo(room);
+    // 模擬 banker_bet / call / showdown 流程
+  });
+});
+```
+
+**E2E 測試 Fixtures / Seeds：**
+
+TypeScript seed scripts 位於 `tests/fixtures/`，預置測試帳號（`player_id='test-player-1'`，`chip_balance=50,000`）、廳別（青銅廳），測試結束後執行清理 script 還原狀態。
+
+**效能測試：**
+
+- k6 WS 腳本（`tests/performance/ws-load.js`）：模擬 500 CCU 並發 WebSocket 連線，量測 P95/P99 延遲
+- `@colyseus/loadtest`：測試 Room 吞吐量（房間創建速率、訊息處理 TPS）
+
+**測試 DB：**
+
+獨立 PostgreSQL 實例（`docker-compose.test.yml`），每次測試前執行 `prisma migrate reset` 或自定義清理 script，確保隔離性。
+
+**Mock 策略：**
+
+| 依賴 | Mock 工具 |
+|------|----------|
+| Redis | `ioredis-mock`（單元測試）；真實 Redis 容器（整合測試）|
+| PostgreSQL | `pg-mem`（輕量 in-memory，單元測試）；`testcontainers`（整合測試）|
+| OTP SMS | 固定 OTP Code（測試環境 env var `TEST_OTP_BYPASS_CODE`）|
 
 ---
 
