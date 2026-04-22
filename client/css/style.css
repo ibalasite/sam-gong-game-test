@@ -94,6 +94,36 @@ input:focus{border-color:var(--gold)}
 .bdg.bnk{background:rgba(240,192,64,.18);color:var(--gold)}
 .bdg.call{background:rgba(165,214,167,.18);color:#a5d6a7}
 .bdg.fold{background:rgba(239,154,154,.18);color:#ef9a9a}
+.bdg.wait{background:rgba(128,203,196,.15);color:#80cbc4;border:1px dashed rgba(128,203,196,.35)}
+
+/* BUG-20260422-010：輪到的人頭上顯示明顯倒數 — 金色脈動，<=5s 變紅色急促 */
+.turn-timer{
+  position:absolute; top:-38px; left:50%; transform:translateX(-50%);
+  background:linear-gradient(135deg,#f0c040,#d4af37);
+  color:#1a1a1a;
+  padding:5px 14px; border-radius:18px;
+  font-weight:900; font-size:1.1rem;
+  white-space:nowrap; z-index:15;
+  box-shadow:0 3px 12px rgba(240,192,64,.7), 0 0 28px rgba(240,192,64,.45);
+  animation:turnPulse 1s ease-in-out infinite;
+  pointer-events:none;
+  text-shadow:0 1px 2px rgba(255,255,255,.4);
+}
+.turn-timer.urgent{
+  background:linear-gradient(135deg,#ff6b6b,#c0392b);
+  color:#fff;
+  box-shadow:0 3px 12px rgba(192,57,43,.8), 0 0 32px rgba(255,107,107,.6);
+  animation:turnPulseUrgent .5s ease-in-out infinite;
+  text-shadow:0 1px 2px rgba(0,0,0,.5);
+}
+@keyframes turnPulse{
+  0%,100% { transform:translateX(-50%) scale(1); }
+  50%     { transform:translateX(-50%) scale(1.10); }
+}
+@keyframes turnPulseUrgent{
+  0%,100% { transform:translateX(-50%) scale(1); }
+  50%     { transform:translateX(-50%) scale(1.18); }
+}
 
 /* Cards */
 .hand{display:flex;gap:4px;margin-top:2px}

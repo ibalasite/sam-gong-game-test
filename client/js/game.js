@@ -42,14 +42,20 @@ let _lastBetAnimAt  = 0;   // timestamp of last coin-to-pot animation (ms)
 // _dealAnim.dealtForSeat：{seat_index: 已飛到的張數（0-3）}，用於逐張呈現
 let _dealAnim = { inProgress: false, dealtForSeat: {} };
 let _myHandRevealedCount = 0;   // 自己手牌已翻面的張數（0-3）
-// BUG-20260422-009：遊戲開始倒數（waiting phase 2 人就緒後的 3 秒）每秒 re-render
+// BUG-20260422-009 / 010：倒數 ticker — 每秒 re-render，涵蓋：
+//  1) waiting phase：遊戲開始倒數（2 人就緒後 3 秒）
+//  2) banker-bet phase：莊家下注倒數（30 秒，輪到莊家的頭上顯示）
+//  3) player-bet phase：閒家行動倒數（30 秒，輪到誰就誰的頭上顯示）
 let _countdownTicker = null;
 function startCountdownTicker() {
   if (_countdownTicker) return;
   _countdownTicker = setInterval(() => {
-    if (!_state || _state.phase !== 'waiting') { stopCountdownTicker(); return; }
+    if (!_state) { stopCountdownTicker(); return; }
+    const phase = _state.phase;
     const dl = Number(_state.action_deadline_timestamp || 0);
-    if (dl <= 0 || dl <= Date.now()) { stopCountdownTicker(); renderState(_state); return; }
+    // 只在這三個 phase 有倒數需求
+    const shouldTick = (phase === 'waiting' || phase === 'banker-bet' || phase === 'player-bet') && dl > 0;
+    if (!shouldTick) { stopCountdownTicker(); return; }
     renderState(_state);
   }, 500);
 }
@@ -375,6 +381,11 @@ function renderState(s) {
     }
   }
 
+  // BUG-20260422-010：banker-bet / player-bet phase 需要倒數 ticker 驅動頭頂計時器
+  if ((phase === 'banker-bet' || phase === 'player-bet') && Number(s.action_deadline_timestamp || 0) > Date.now()) {
+    startCountdownTicker();
+  }
+
   // 第一次進入 settled：金幣飛入 + 收銀機聲
   if (phase === 'settled' && !_settledOnce) {
     _settledOnce = true;
@@ -484,6 +495,13 @@ function renderState(s) {
       }
     }
 
+    // BUG-20260422-010：中途加入排隊者不在本局 —— 任何 phase 都不顯示牌
+    if (p.is_waiting_next_round) {
+      cards = [];
+      reveal = false;
+      dealtCount = 0;
+    }
+
     // Hand-type label — 放在頭像上方
     // active = 正在亮牌（大字閃亮）；done = 已亮（縮小）；pending = 尚未亮
     let evalLbl = '';
@@ -499,7 +517,9 @@ function renderState(s) {
 
     // Badge
     let badge = '';
-    if (p.is_folded) {
+    if (p.is_waiting_next_round) {
+      badge = '<span class="bdg wait">⏳ 等待下一局</span>';   // BUG-20260422-010
+    } else if (p.is_folded) {
       badge = '<span class="bdg fold">棄牌</span>';
     } else if (p.has_acted && !p.is_banker && p.bet_amount > 0) {
       badge = `<span class="bdg call">跟 ${(p.bet_amount||0).toLocaleString()}</span>`;
@@ -507,6 +527,21 @@ function renderState(s) {
       badge = `<span class="bdg bnk">莊 ${(p.bet_amount||0).toLocaleString()}</span>`;
     } else if (isBanker) {
       badge = '<span class="bdg bnk">莊</span>';
+    }
+
+    // BUG-20260422-010：輪到的人頭上顯示明顯倒數（大家都看得到，知道在等誰）
+    let turnTimer = '';
+    const isMyTurn = !p.is_waiting_next_round && !p.is_folded && (
+      (phase === 'banker-bet' && p.is_banker) ||
+      (phase === 'player-bet' && seatIdx === s.current_player_turn_seat && !p.has_acted)
+    );
+    if (isMyTurn) {
+      const dl = Number(s.action_deadline_timestamp || 0);
+      if (dl > 0) {
+        const secsLeft = Math.max(0, Math.ceil((dl - Date.now()) / 1000));
+        const urgent = secsLeft <= 5 ? ' urgent' : '';
+        turnTimer = `<div class="turn-timer${urgent}">⏱ ${secsLeft}</div>`;
+      }
     }
 
     // 結算泡泡
@@ -528,6 +563,7 @@ function renderState(s) {
 
     box.innerHTML = `
       ${bubble}
+      ${turnTimer}
       ${evalLbl}
       <div class="av${isBanker?' bnkav':''}${isMe?' meav':''}">${isBanker?'👑':isMe?'😊':'👤'}</div>
       <div class="sname">${esc(p.display_name||'玩家')}</div>
@@ -861,8 +897,12 @@ function startDealAnimation(onComplete) {
   const bankerEl = elForSeat(bankerSeat);
   if (!bankerEl) { if (onComplete) onComplete(); return; }
 
-  // 發牌順序：依 seat_index 由莊家 +1 開始順時鐘，莊家最後
-  const bySeat = all.slice().sort((a, b) => a.seat_index - b.seat_index);
+  // BUG-20260422-010：中途加入排隊者（is_waiting_next_round）不參與本局，
+  // 不要把牌飛到他們的座位
+  const bySeat = all.slice()
+    .filter(p => !p.is_waiting_next_round)
+    .sort((a, b) => a.seat_index - b.seat_index);
+  if (bySeat.length === 0) { if (onComplete) onComplete(); return; }
   const startPos = bySeat.findIndex(p => p.seat_index === bankerSeat);
   const dealQueue = [];
   for (let i = 1; i <= bySeat.length; i++) {
