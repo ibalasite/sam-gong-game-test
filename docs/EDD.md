@@ -256,6 +256,9 @@ onJoin（每位玩家）
   → 預扣 entry escrow（如適用）
   → 分配 seat_index
   → 初始化 PlayerState
+  → **年齡路由**：讀取 `player_session.is_minor`（來自 JWT payload 或 DB 查詢）；
+    - `is_minor === true` → `antiAddiction.trackUnderageDaily(playerId)` （2h 每日上限）
+    - `is_minor === false` → `antiAddiction.trackAdultSession(playerId)` （2h 重複提醒）
   → ≥ 2 人時啟動遊戲循環
 
 onLeave（玩家離開）
@@ -416,7 +419,30 @@ client.send('myHand', {
 this.broadcast('showdown_reveal', { hands: revealedHands });
 ```
 
-### 3.3 Game State Machine
+### 3.3 Room Tier Configuration
+
+**廳別進入資格與下注範圍（BRD 授權數值）：**
+
+| 廳別 | Entry 籌碼下限 | min_bet | max_bet | quick_bet_amounts |
+|------|:------------:|:-------:|:-------:|:-----------------:|
+| 青銅廳 | 1,000 | 100 | 500 | [100, 200, 300, 500] |
+| 白銀廳 | 10,000 | 1,000 | 5,000 | [1000, 2000, 3000, 5000] |
+| 黃金廳 | 100,000 | 10,000 | 50,000 | [10000, 20000, 30000, 50000] |
+| 鉑金廳 | 1,000,000 | 100,000 | 500,000 | [100000, 200000, 300000, 500000] |
+| 鑽石廳 | 10,000,000 | 1,000,000 | 5,000,000 | [1000000, 2000000, 3000000, 5000000] |
+
+```typescript
+// src/config/tierConfig.ts
+export const TIER_CONFIGS: Record<string, TierConfigValues> = {
+  '青銅廳': { entry_chips: 1000,      min_bet: 100,     max_bet: 500,     quick_bets: [100, 200, 300, 500] },
+  '白銀廳': { entry_chips: 10000,     min_bet: 1000,    max_bet: 5000,    quick_bets: [1000, 2000, 3000, 5000] },
+  '黃金廳': { entry_chips: 100000,    min_bet: 10000,   max_bet: 50000,   quick_bets: [10000, 20000, 30000, 50000] },
+  '鉑金廳': { entry_chips: 1000000,   min_bet: 100000,  max_bet: 500000,  quick_bets: [100000, 200000, 300000, 500000] },
+  '鑽石廳': { entry_chips: 10000000,  min_bet: 1000000, max_bet: 5000000, quick_bets: [1000000, 2000000, 3000000, 5000000] },
+};
+```
+
+### 3.5 Game State Machine
 
 ```mermaid
 stateDiagram-v2
@@ -477,7 +503,7 @@ stateDiagram-v2
 | `showdown` | 翻牌比牌（Server 計算） | ≤ 1s |
 | `settled` | 結算廣播 + 顯示 | ≈ 5s（等待下一局） |
 
-### 3.4 Game Logic Modules
+### 3.6 Game Logic Modules
 
 **模組目錄結構（server-only TypeScript package，不得被 Client import）：**
 
@@ -633,6 +659,16 @@ export class AntiAddictionManager {
   // Redis 為 write-through cache；Redis 重啟後從 PostgreSQL 回填，避免 Sentinel 切換時遺失計時資料。
   persistTimers(playerId: string): Promise<void>;
 }
+
+// Wiring in SamGongRoom.onJoin():
+async onJoin(client: Client, options: JoinOptions, auth: AuthToken) {
+  const isMinor = auth.is_minor ?? false; // from JWT claim populated by KYC/OTP
+  if (isMinor) {
+    await this.antiAddiction.trackUnderageDaily(auth.player_id);
+  } else {
+    await this.antiAddiction.trackAdultSession(auth.player_id);
+  }
+}
 ```
 
 **BankerRotation：**
@@ -649,7 +685,18 @@ export class BankerRotation {
 }
 ```
 
-### 3.5 Message Protocol
+**Rotation Algorithm（輪莊制）：**
+
+```
+每局結束時：
+1. 取得當前已入座玩家的 seat_index 列表（排除已離線玩家）：seats = [s0, s1, s2, ...]
+2. 尋找當前莊家 seat 的位置：idx = seats.indexOf(currentBankerSeat)
+3. 下一莊家：nextBankerSeat = seats[(idx + 1) % seats.length]  // 順時鐘循環
+4. 若下一莊家因破產或其他原因須跳過：skipInsolventBanker() 繼續 (idx+2) % N
+5. banker_rotation_queue 在每局結束時由當前在席玩家重建（動態列表，自動處理中途離場）
+```
+
+### 3.7 Message Protocol
 
 **Client → Server 訊息（Colyseus onMessage）：**
 
@@ -677,6 +724,33 @@ export class BankerRotation {
 | `error` | `{ code: string, message: string }` | 一般錯誤回應（非法操作、驗證失敗） |
 | `matchmaking_expanded` | `{ expanded_tiers: string[] }` | 配對擴展至相鄰廳別（30s 後） |
 | `send_message_rejected` | `{ reason: 'content_filter' \| 'rate_limit' }` | 聊天訊息被拒絕 |
+
+#### 重連流程 (Reconnect Flow)
+
+**Client 端實作（Cocos Creator）：**
+
+```typescript
+// 1. 連線成功時儲存重連憑證
+room.onLeave(async (code) => {
+  if (code === 4000) return; // 被踢出，不重連
+  const stored = { roomId: room.id, sessionId: room.sessionId };
+  cc.sys.localStorage.setItem('reconnect_info', JSON.stringify(stored));
+  // 2. 嘗試重連（30s 視窗內）
+  try {
+    const reconnInfo = JSON.parse(cc.sys.localStorage.getItem('reconnect_info'));
+    room = await client.reconnect(reconnInfo.roomId, reconnInfo.sessionId);
+  } catch (e) {
+    // 重連失敗：清除憑證，導向大廳
+    cc.sys.localStorage.removeItem('reconnect_info');
+    UIManager.navigateTo('LobbyScene');
+  }
+});
+```
+
+**Server 端（onLeave）：**
+- `allowReconnection(client, 30)` 保留 30s 重連視窗
+- 重連成功 → Server 重新推送 `myHand`（private message）
+- 重連失敗 → onLeave final callback → 玩家處理為棄牌（mid-game）或退出（waiting phase）
 
 ---
 
@@ -1699,6 +1773,35 @@ APM：
 | 合規參考 | BRD §9 / PRD §9 | v0.12 / v0.14 | 台灣《刑法》§266、《詐欺犯罪危害防制條例》、《個資法》、GDPR |
 | Colyseus 官方 | https://docs.colyseus.io/ | 0.15.x | Room API, Schema, Redis Presence, Matchmaking |
 | Colyseus Cocos Creator SDK | https://docs.colyseus.io/getting-started/cocos-creator/ | 0.15.x | Client SDK 整合 |
+
+---
+
+## 13. REQ Traceability Matrix
+
+| REQ | 描述摘要 | EDD 對應章節 |
+|-----|---------|-------------|
+| REQ-001 | 房間加入/配對 | §3.1 Room Lifecycle (onJoin), §4.1 POST /api/v1/rooms |
+| REQ-002 | 遊戲流程（發牌/下注/翻牌）| §3.5 Game State Machine, §3.6 DeckManager, HandEvaluator |
+| REQ-003 | 結算系統 | §3.6 SettlementEngine |
+| REQ-004 | 私人房間/密碼房 | §3.1 Room Design (room_type=private), §4.1 POST /api/v1/rooms/private |
+| REQ-005 | 輪莊制 | §3.6 BankerRotation |
+| REQ-006 | 排行榜（含交易類型過濾）| §4.1 GET /api/v1/leaderboard, §5.2 leaderboard_weekly DDL, §5.4 REQ-006 AC-8 |
+| REQ-007 | 聊天功能 | §3.7 Message Protocol (send_chat), §5.2 chat_messages DDL |
+| REQ-008 | 多語系（i18n 框架）| Client-side only（PDD §8）；Server 回傳 error code, Client 本地化 |
+| REQ-009 | 每日/週任務 | §4.1 GET/POST /api/v1/player/daily-tasks, §5.2 daily_tasks DDL |
+| REQ-010 | 籌碼救援（Rescue Chips）| §4.1（救援端點）, §5.2 chip_transactions tx_type='rescue' |
+| REQ-011 | 廳別進入資格 | §3.3 Room Tier Configuration（entry_chips 欄位）|
+| REQ-012 | 機器人（NPC）| 教學模式 SamGongBot（§3.1 Tutorial Room）；正式房不含 NPC |
+| REQ-013 | 法律免責聲明 | Client-side only（PDD §5 每個畫面 wireframe）；Server 不介入 |
+| REQ-014 | 個人資料/帳號管理 | §4.1 GET/PUT /api/v1/player/me, §5.2 users DDL |
+| REQ-015 | Cookie 同意 | §4.1 POST /api/v1/player/cookie-consent, §5.2 cookie_consents DDL |
+| REQ-016 | 隱私政策 | §4.1 POST /api/v1/player/cookie-consent（consent_version）|
+| REQ-017 | 速率限制 | §4.3 Rate Limiting（NFR-19 4層）|
+| REQ-018 | KYC/OTP 年齡驗證 | §4.1 POST /api/v1/auth/otp-verify, §6.3 Taiwan Compliance |
+| REQ-019 | 防沉迷 | §3.6 AntiAddictionManager, §5.3 Redis aa:session, §5.2 users（daily_play_seconds）|
+| REQ-020a | 廣告獎勵（AdMob）| §4.1 POST /api/v1/player/ad-reward |
+| REQ-020b | 籌碼商店（IAP）| §4.1 佔位（feature flag 2026-05-15 法律意見書後決定）|
+| REQ-021 | 教學關卡 | §3.1 Tutorial Room 設計（Tutorial SamGongRoom variant）|
 
 ---
 
