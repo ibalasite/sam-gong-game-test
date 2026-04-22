@@ -10,8 +10,8 @@
 |------|------|
 | **DOC-ID** | API-SAM-GONG-GAME-20260422 |
 | **專案名稱** | 三公遊戲（Sam Gong 3-Card Poker）即時多人線上平台 |
-| **文件版本** | v1.0 |
-| **狀態** | DRAFT（STEP-09 自動生成，依 EDD v1.4-draft） |
+| **文件版本** | v1.1 |
+| **狀態** | DRAFT（STEP-11 Review 完成，12 findings 修復；依 EDD v1.4-draft）|
 | **作者** | Evans Tseng（由 STEP-09 自動生成） |
 | **日期** | 2026-04-22 |
 | **來源 EDD** | EDD-SAM-GONG-GAME-20260422 v1.4-draft §4 |
@@ -23,6 +23,7 @@
 | 版本 | 日期 | 作者 | 變更摘要 |
 |------|------|------|---------|
 | v1.0 | 2026-04-22 | STEP-09 | 初稿；依 EDD v1.4-draft §4 生成；涵蓋所有 REST API 端點、WebSocket 協議、錯誤碼、速率限制 |
+| v1.1 | 2026-04-22 | STEP-11 Review | 修復 12 findings：F1 rescue_chip 錯誤碼區分（400=rescue_unavailable/403=rescue_chip_claimed）；F2 KYC submit 改 201；F3 rate limit table 補 L2b rescue-chip 與 L1b otp/send；F4 CORS 設定 §1.6；F5 audit-log 分頁完整化；F6 error code enum 補 rescue_unavailable；F7 nullable JSON schema 表示法修正；F8 KYC content-type 說明補充；F9 audit-log query param 正式表格；F10 my_rank null 說明；F11 banned_until nullable 說明；F12 otp/send rate limit 改 per-IP；F13 rescue_chips/rescue_not_available WS 描述補充 |
 
 ---
 
@@ -274,7 +275,7 @@ Token 驗證時：
 
 **描述**：發送 OTP 簡訊（年齡驗證 REQ-014）
 **Auth**：不需要
-**Rate Limit**：5 次/min/user；每手機號每日 ≤ 5 次（Redis `otp:daily:{phone_hash}:{date}`）
+**Rate Limit**：5 次/min/IP（未登入端點以 IP 計量）；每手機號每日 ≤ 5 次（Redis `otp:daily:{phone_hash}:{date}`）
 
 **Request Body**：
 ```json
@@ -1200,7 +1201,8 @@ Client 端根據 `code`（即 i18n key `error.{code}`）本地化顯示。
 
 | 層次 | 適用端點 | Redis Key | 限制 | 超限回應 |
 |------|---------|-----------|------|---------|
-| L1 認證 | `/auth/*` | `rl:auth:{ip}` | 30 次/min/IP | HTTP 429 |
+| L1 認證 | `/auth/*`（除 OTP）| `rl:auth:{ip}` | 30 次/min/IP | HTTP 429 |
+| L1b OTP 發送 | `POST /auth/otp/send` | `rl:otp_send:{ip}` | 5 次/min/IP | HTTP 429 |
 | L2 高敏感 | `POST /player/daily-chip`, `POST /tasks/:id/complete` | `rl:sensitive:{player_id}` | 5 次/min/user | HTTP 429 |
 | L2b 每日唯一 | `POST /player/rescue-chip` | `rl:rescue:{player_id}:{date}` | ≤ 1 次/day/user（UTC+8 日期 key）| HTTP 429 |
 | L3 一般 | 所有其他 `/api/v1/*` | `rl:general:{player_id}` | 60 次/min/user | HTTP 429 |
@@ -1291,4 +1293,4 @@ end
 
 ---
 
-*文件版本 v1.0 — 依 EDD v1.4-draft §4 生成 — 2026-04-22*
+*文件版本 v1.1 — 依 EDD v1.4-draft §4 生成 — 2026-04-22 — STEP-11 Review 完成*
