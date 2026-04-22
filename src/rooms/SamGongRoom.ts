@@ -279,6 +279,9 @@ export class SamGongRoom extends Room<SamGongState> {
 
     this.state.players.set(String(seatIndex), player);
 
+    // 廣播最新 Room State（純 JSON，供 Client 識別玩家列表）
+    this.broadcastRoomState();
+
     // 推送 my_session_info（Client 識別自身 session）
     client.send('my_session_info', {
       session_id: client.sessionId,
@@ -493,9 +496,15 @@ export class SamGongRoom extends Room<SamGongState> {
       }
     });
 
+    // 鎖定房間：遊戲進行中不接受新玩家，避免 mid-game join 導致結算爆炸
+    this.lock();
+
     // 進入莊家下注 phase
     this.state.phase = 'banker-bet';
     this.state.action_deadline_timestamp = Date.now() + 30_000;
+
+    // 廣播最新 Room State（新局開始）
+    this.broadcastRoomState();
 
     const bankerTimer = setTimeout(() => {
       // 30s 超時：自動最低下注
@@ -525,6 +534,7 @@ export class SamGongRoom extends Room<SamGongState> {
     this.state.banker_bet_amount = autoBetAmount;
     bankerPlayer.bet_amount = autoBetAmount;
     bankerPlayer.chip_balance -= autoBetAmount;
+    this.state.current_pot = autoBetAmount;   // ← 莊家下注入池
 
     this.startPlayerBetPhase();
   }
@@ -546,6 +556,9 @@ export class SamGongRoom extends Room<SamGongState> {
 
     this.state.current_player_turn_seat = firstPlayer;
     this.state.action_deadline_timestamp = Date.now() + 30_000;
+
+    // 廣播最新 Room State（進入 player-bet phase）
+    this.broadcastRoomState();
 
     const timer = setTimeout(() => {
       // 30s 超時：自動 Fold
@@ -579,6 +592,9 @@ export class SamGongRoom extends Room<SamGongState> {
     this.state.current_player_turn_seat = next;
     this.state.action_deadline_timestamp = Date.now() + 30_000;
 
+    // 廣播最新 Room State（輪至下一位閒家）
+    this.broadcastRoomState();
+
     const newTimer = setTimeout(() => {
       const player = (Array.from(this.state.players.values()) as PlayerState[])
         .find((p) => p.seat_index === this.state.current_player_turn_seat);
@@ -608,7 +624,10 @@ export class SamGongRoom extends Room<SamGongState> {
   private startShowdown(): void {
     this.state.phase = 'showdown';
 
-    // 廣播所有未 Fold 玩家手牌
+    // 廣播最新 Room State（phase = showdown）
+    this.broadcastRoomState();
+
+    // 廣播所有未 Fold 玩家手牌（含預計算牌形，讓 client 逐座顯示）
     const revealedHands: Record<string, Card[]> = {};
     for (const [playerId, hand] of this.playerHands.entries()) {
       const player = (Array.from(this.state.players.values()) as PlayerState[])
@@ -617,10 +636,22 @@ export class SamGongRoom extends Room<SamGongState> {
         revealedHands[String(player.seat_index)] = hand;
       }
     }
-    this.broadcast('showdown_reveal', { hands: revealedHands });
+    // 預計算每位玩家的牌形（hand_type, points, is_sam_gong）
+    const handTypes: Record<string, { hand_type: string; points: number; is_sam_gong: boolean }> = {};
+    for (const [seatKey, hand] of Object.entries(revealedHands)) {
+      try {
+        const res = this.handEvaluator.evaluate(hand);
+        handTypes[seatKey] = { hand_type: res.hand_type, points: res.points, is_sam_gong: res.is_sam_gong };
+      } catch (_) { /* skip */ }
+    }
+    this.broadcast('showdown_reveal', { hands: revealedHands, hand_types: handTypes });
 
-    // 執行結算
-    this.executeSettlement();
+    // 延遲 3 秒讓玩家看牌，再執行結算
+    const showdownTimer = setTimeout(() => {
+      this.phaseTimers.delete('showdown_delay');
+      this.executeSettlement();
+    }, 3_000);
+    this.phaseTimers.set('showdown_delay', showdownTimer);
   }
 
   /**
@@ -725,6 +756,9 @@ export class SamGongRoom extends Room<SamGongState> {
         bankerState.chip_balance += this.state.banker_bet_amount + result.banker_settlement.net_chips;
       }
 
+      // 廣播最新 Room State（含結算結果 + 更新後籌碼）
+      this.broadcastRoomState();
+
       // Write-Through 防沉迷計時資料至 PostgreSQL/Redis（每局 settled 後）
       players.forEach((p) => {
         this.antiAddictionManager.persistTimers(p.player_id).catch((err) => {
@@ -737,9 +771,17 @@ export class SamGongRoom extends Room<SamGongState> {
         this.phaseTimers.delete('next_round');
         if (this.state.players.size >= 2) {
           this.resetForNextRound();
-          this.startNewRound();
+          // resetForNextRound 可能因無合格莊家而提早 return（phase='waiting'）
+          if (this.state.phase === 'waiting') {
+            this.unlock();  // 重新開放加入
+            this.broadcastRoomState();
+          } else {
+            this.startNewRound();
+          }
         } else {
           this.state.phase = 'waiting';
+          this.unlock();  // 重新開放加入
+          this.broadcastRoomState();
           this.waitingTimer = setTimeout(() => {
             if (this.state.players.size < 2) {
               this.disconnect();
@@ -750,7 +792,22 @@ export class SamGongRoom extends Room<SamGongState> {
       this.phaseTimers.set('next_round', nextRoundTimer);
 
     } catch (err) {
-      console.error('[SamGongRoom] Settlement error:', err);
+      // 結算失敗：recovery — 5s 後重置並重新開局，避免 client 永久卡住
+      console.error('[SamGongRoom] Settlement error (recovering):', err);
+      this.state.phase = 'waiting';
+      this.unlock();
+      this.broadcastRoomState();
+      const recoveryTimer = setTimeout(() => {
+        this.phaseTimers.delete('settlement_recovery');
+        if (this.state.players.size >= 2) {
+          this.playerHands.clear();
+          this.resetForNextRound();
+          if (this.state.phase !== 'waiting') {
+            this.startNewRound();
+          }
+        }
+      }, 3_000);
+      this.phaseTimers.set('settlement_recovery', recoveryTimer);
     }
   }
 
@@ -847,6 +904,7 @@ export class SamGongRoom extends Room<SamGongState> {
     player.chip_balance -= amount;
     player.bet_amount = amount;
     this.state.banker_bet_amount = amount;
+    this.state.current_pot = amount;   // ← 莊家下注入池
 
     this.startPlayerBetPhase();
   }
@@ -878,6 +936,7 @@ export class SamGongRoom extends Room<SamGongState> {
     player.chip_balance -= this.state.banker_bet_amount;
     player.bet_amount = this.state.banker_bet_amount;
     player.has_acted = true;
+    this.state.current_pot += this.state.banker_bet_amount;  // ← 閒家跟注入池
 
     this.advancePlayerTurn();
   }
@@ -1004,6 +1063,90 @@ export class SamGongRoom extends Room<SamGongState> {
         }, 60_000);
       }
     }
+  }
+
+  // ──────────────────────────────────────────────
+  // State Broadcast Helper
+  // ──────────────────────────────────────────────
+
+  /**
+   * 廣播完整 Room State 至所有 Client（純 JSON，繞過 Schema 序列化）
+   * 用途：解決 @colyseus/schema 版本不一致導致 Client 端無法解碼 Schema 的問題。
+   * Client 以此訊息為主要狀態來源，不依賴 Colyseus schema sync。
+   */
+  private broadcastRoomState(): void {
+    const players: Array<{
+      seat_index: number; player_id: string; display_name: string;
+      chip_balance: number; is_banker: boolean; is_folded: boolean;
+      has_acted: boolean; bet_amount: number;
+    }> = [];
+
+    this.state.players.forEach((p) => {
+      players.push({
+        seat_index: p.seat_index,
+        player_id: p.player_id,
+        display_name: p.display_name,
+        chip_balance: p.chip_balance,
+        is_banker: p.is_banker,
+        is_folded: p.is_folded,
+        has_acted: p.has_acted,
+        bet_amount: p.bet_amount,
+      });
+    });
+
+    // Serialize settlement (ArraySchema → plain array)
+    const toArr = (col: { forEach: (fn: (e: SettlementEntry) => void) => void } | null | undefined) => {
+      const arr: Array<{
+        player_id: string; seat_index: number; net_chips: number;
+        bet_amount: number; payout_amount: number; result: string;
+        hand_type: string; is_sam_gong: boolean;
+      }> = [];
+      if (col && typeof col.forEach === 'function') {
+        col.forEach((e) => arr.push({
+          player_id: e.player_id,
+          seat_index: e.seat_index,
+          net_chips: e.net_chips,
+          bet_amount: e.bet_amount,
+          payout_amount: e.payout_amount,
+          result: e.result,
+          hand_type: e.hand_type,
+          is_sam_gong: e.is_sam_gong,
+        }));
+      }
+      return arr;
+    };
+
+    const s = this.state.settlement;
+    const settlement = (s && this.state.phase === 'settled') ? {
+      rake_amount: s.rake_amount,
+      pot_amount: s.pot_amount,
+      banker_insolvent: s.banker_insolvent,
+      all_fold: s.all_fold,
+      winners: toArr(s.winners),
+      losers: toArr(s.losers),
+      ties: toArr(s.ties),
+      folders: toArr(s.folders),
+      insolvent_winners: toArr(s.insolvent_winners),
+    } : null;
+
+    const quickBets: number[] = [];
+    if (this.state.tier_config?.quick_bet_amounts) {
+      this.state.tier_config.quick_bet_amounts.forEach((v: number) => quickBets.push(v));
+    }
+
+    this.broadcast('room_state', {
+      phase: this.state.phase,
+      current_pot: this.state.current_pot,
+      current_player_turn_seat: this.state.current_player_turn_seat,
+      banker_bet_amount: this.state.banker_bet_amount,
+      banker_seat_index: this.state.banker_seat_index,
+      min_bet: this.state.min_bet,
+      max_bet: this.state.max_bet,
+      hall_name: this.state.tier_config?.tier_name || '青銅廳',
+      quick_bet_amounts: quickBets,
+      players,
+      settlement,
+    });
   }
 
   // ──────────────────────────────────────────────

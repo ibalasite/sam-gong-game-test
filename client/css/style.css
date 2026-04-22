@@ -63,6 +63,7 @@ input:focus{border-color:var(--gold)}
 }
 .oplbl{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
 .opot {font-size:1.5rem;font-weight:700;color:var(--gold)}
+.oresult{font-size:.95rem;font-weight:900;min-height:1.2rem;text-align:center;transition:color .3s}
 .ohall{font-size:.65rem;color:#80cbc4}
 
 /* ── Seats ──────────────────────────────────── */
@@ -81,7 +82,11 @@ input:focus{border-color:var(--gold)}
 .av.bnkav{border-color:var(--gold);box-shadow:0 0 14px rgba(240,192,64,.45)}
 .av.meav {border-color:#80cbc4}
 .sname{font-size:.72rem;color:#ccc;max-width:110px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.schips{font-size:.68rem;color:var(--gold)}
+.schips{
+  font-size:1rem;font-weight:700;color:var(--gold);
+  letter-spacing:.5px;
+  text-shadow:0 0 8px rgba(240,192,64,.5);
+}
 .sbdg{min-height:16px}
 
 /* Badges */
@@ -102,13 +107,14 @@ input:focus{border-color:var(--gold)}
 
 /* ── Floating panels ────────────────────────── */
 .fpanel{
-  position:fixed;top:50%;transform:translateY(-50%);
-  width:210px;max-height:70vh;
+  position:fixed;top:38px;
+  width:220px;max-height:calc(100vh - 46px);
   background:var(--panel);border:1px solid var(--border);
   border-radius:12px;padding:12px;
   display:flex;flex-direction:column;gap:8px;
   backdrop-filter:blur(8px);z-index:10;
   box-shadow:0 4px 20px rgba(0,0,0,.6);
+  overflow-y:auto;
 }
 .fpanel.left {left:10px}
 .fpanel.right{right:10px}
@@ -132,7 +138,42 @@ input:focus{border-color:var(--gold)}
 .abox{display:flex;flex-direction:column;flex:1;overflow-y:auto;min-height:60px}
 .hint{color:var(--muted);font-size:.82rem;text-align:center;padding:10px 0}
 .hint.gold{color:var(--gold)}
-.rinfo{font-size:.68rem;color:#444;margin-top:auto;padding-top:6px}
+
+/* Auto-act toggle */
+.auto-toggle{
+  display:flex;align-items:center;gap:7px;cursor:pointer;
+  padding:5px 4px 6px;border-bottom:1px solid var(--border);
+  user-select:none;
+}
+.auto-toggle input[type=checkbox]{
+  width:14px;height:14px;accent-color:var(--gold);cursor:pointer;flex-shrink:0;
+}
+.auto-toggle-txt{font-size:.72rem;color:#aaa;transition:color .2s}
+.auto-toggle:has(input:checked) .auto-toggle-txt{color:var(--gold)}
+
+/* Auto-act progress bar */
+.auto-progress{
+  height:3px;background:var(--gold);border-radius:2px;margin:4px 0 2px;
+  transform-origin:left center;
+  animation:autoShrink linear forwards;
+  box-shadow:0 0 6px rgba(240,192,64,.6);
+}
+@keyframes autoShrink{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+
+/* Share box */
+.share-box{
+  margin-top:auto;padding-top:8px;
+  border-top:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+}
+.share-lbl{font-size:.6rem;color:#555;letter-spacing:.5px;text-transform:uppercase}
+.share-code{
+  font-family:monospace;font-size:1.35rem;font-weight:900;
+  color:#80cbc4;letter-spacing:4px;
+  background:rgba(128,203,196,.08);border:1px solid rgba(128,203,196,.2);
+  border-radius:7px;padding:5px 14px;width:100%;text-align:center;
+  user-select:all;
+}
 
 /* ── Result overlay ─────────────────────────── */
 .result-ov{
@@ -171,6 +212,92 @@ input:focus{border-color:var(--gold)}
 .toast.gold{border-color:var(--gold);color:var(--gold)}
 .toast.red {border-color:#ef9a9a;color:#ef9a9a}
 @keyframes fup{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+
+/* ── Hand-type eval label ───────────────────────────────── */
+.eval-lbl{
+  font-size:.76rem;font-weight:800;padding:2px 9px;border-radius:6px;
+  text-align:center;white-space:nowrap;margin-bottom:4px;
+  background:rgba(0,0,0,.55);color:#e0e0e0;
+  transition:font-size .25s,padding .25s,box-shadow .25s;
+}
+/* 正在亮牌 → 超大閃亮（至少與頭像同高 48px） */
+.eval-lbl.active{
+  font-size:3.2rem;font-weight:900;letter-spacing:4px;
+  padding:8px 20px;border-radius:12px;
+  color:#fff;line-height:1;
+  background:linear-gradient(135deg,#ffe066,#f0a000,#e65100);
+  box-shadow:0 0 22px rgba(240,192,64,.9),0 0 44px rgba(240,192,64,.5);
+  animation:evalBurst .3s cubic-bezier(.17,.67,.3,1.6) both,
+            evalPulse  .9s ease-in-out infinite alternate;
+}
+/* 已亮牌但不是當前 → 縮回小 */
+.eval-lbl.done{
+  font-size:.76rem;font-weight:800;padding:2px 9px;
+  opacity:.80;
+}
+.eval-lbl.done.high    {color:var(--gold);background:rgba(240,192,64,.18)}
+.eval-lbl.done.sam-gong{
+  color:#fff;background:linear-gradient(135deg,#f0c040,#e65100);
+  letter-spacing:1px;box-shadow:0 0 6px rgba(240,192,64,.4);
+}
+/* active 的牌形覆蓋 */
+.eval-lbl.active.sam-gong{
+  background:linear-gradient(135deg,#fff7d6,#ffcc00,#e65100);
+}
+/* 未亮牌：等待中 */
+.eval-lbl.pending{
+  color:#555;font-style:italic;font-weight:400;
+  background:transparent;box-shadow:none;
+  animation:blink 1s step-end infinite;
+}
+@keyframes evalBurst{
+  from{transform:scale(.25) rotate(-8deg);opacity:0}
+  to  {transform:scale(1)   rotate(0deg); opacity:1}
+}
+@keyframes evalPulse{
+  from{box-shadow:0 0 12px rgba(240,192,64,.7),0 0 24px rgba(240,192,64,.3)}
+  to  {box-shadow:0 0 28px rgba(240,192,64,1.0),0 0 50px rgba(240,192,64,.7)}
+}
+@keyframes blink{50%{opacity:0}}
+
+/* ── Seat glow states ────────────────────────────────────── */
+.seat-winner{
+  filter:drop-shadow(0 0 14px rgba(240,192,64,.9));
+  animation:winnerPulse 1.2s ease-in-out infinite alternate;
+}
+.seat-spotlight{
+  filter:drop-shadow(0 0 8px rgba(255,255,255,.6));
+}
+@keyframes winnerPulse{
+  from{filter:drop-shadow(0 0 8px  rgba(240,192,64,.7))}
+  to  {filter:drop-shadow(0 0 22px rgba(240,192,64,1.0))}
+}
+
+/* ── Winner / Loser Bubbles ─────────────────────────────── */
+.win-bubble,.lose-bubble,.tie-bubble{
+  font-size:.82rem;font-weight:900;padding:4px 12px;border-radius:20px;
+  white-space:nowrap;text-align:center;margin-bottom:2px;
+  animation:bubblePop .35s cubic-bezier(.17,.67,.3,1.4) both;
+  position:relative;
+}
+.win-bubble{background:rgba(240,192,64,.95);color:#1a1200;
+  box-shadow:0 2px 12px rgba(240,192,64,.6)}
+.lose-bubble{background:rgba(239,83,80,.85);color:#fff;
+  box-shadow:0 2px 12px rgba(239,83,80,.45)}
+.tie-bubble{background:rgba(128,203,196,.8);color:#0a2010;
+  box-shadow:0 2px 12px rgba(128,203,196,.4)}
+/* speech bubble tail */
+.win-bubble::after,.lose-bubble::after,.tie-bubble::after{
+  content:'';position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);
+  border:7px solid transparent;border-top-width:8px;border-bottom:none;
+}
+.win-bubble::after {border-top-color:rgba(240,192,64,.95)}
+.lose-bubble::after{border-top-color:rgba(239,83,80,.85)}
+.tie-bubble::after {border-top-color:rgba(128,203,196,.8)}
+@keyframes bubblePop{
+  from{opacity:0;transform:scale(.4) translateY(10px)}
+  to  {opacity:1;transform:scale(1)  translateY(0)}
+}
 
 /* Scrollbar */
 ::-webkit-scrollbar{width:3px}
