@@ -1,1 +1,5 @@
 .devsop-run-*.log
+node_modules/
+dist/
+coverage/
+*.js.map
