@@ -23,6 +23,7 @@
 | 版本 | 日期 | 作者 | 變更摘要 |
 |------|------|------|---------|
 | v1.0 | 2026-04-22 | STEP-09 | 初稿；依 EDD v1.4-draft 生成；涵蓋系統架構、組件設計、部署拓樸、安全架構、可觀測性、TDR |
+| v1.1 | 2026-04-22 | STEP-10 Round 1 | 修復 7 個 findings：F1 readiness probe 說明補齊（Room state init）；F2 Redis Key Pattern 補充 active_device（多裝置登入偵測）；F3 staging 環境描述補充 Beta 測試；F4 監控表補充 rake_exceeds_theoretical_max 指標；F5 CCU 告警說明強調非 HPA 觸發；F6 Alertmanager 規則補充路由說明（critical→PagerDuty/warning→Slack 5min 匯聚）；F7 Colyseus Monitor 矛盾說明修正（Production 預設禁用）；F8 settled phase 補充 rescue_chips 觸發機制及結算步驟描述精確化 |
 
 ---
 
@@ -135,9 +136,9 @@ server/src/game/
 
 **單節點容量**：~500 CCU（~83 個 6 人房間）
 
-**Health Server**：Port 3001 獨立 HTTP server
+**Health Server**：Port 3001 獨立 HTTP server（獨立 Express HTTP server，與 Colyseus WS port 2567 分離）
 - `GET /health` → liveness probe（HTTP 200）
-- `GET /ready` → readiness probe（DB + Redis 連線確認後 200）
+- `GET /ready` → readiness probe（DB + Redis 連線確認且 Room state 初始化完成後回應 200）
 
 ### 2.3 REST API Service
 
@@ -183,6 +184,7 @@ server/src/game/
 | Colyseus Presence | `colyseus:presence:{room_id}` | 由 Colyseus 管理 |
 | Anti-Addiction | `aa:session:{player_id}` | 距次日 UTC+8 00:00 |
 | OTP 每日計數 | `otp:daily:{phone_hash}:{date}` | 24h |
+| 多裝置登入偵測 | `active_device:{player_id}` | Refresh Token 有效期（≤ 7d）|
 
 ---
 
@@ -266,7 +268,7 @@ spec:
 | 環境 | 用途 | 資源規格 | 部署觸發 |
 |------|------|---------|---------|
 | dev | 功能開發、本地測試 | 單節點（docker-compose） | push to feature/* |
-| staging | Integration Test、性能測試 | 2 Colyseus + 1 PG + 1 Redis | push to develop |
+| staging | Integration Test、性能測試、Beta 測試 | 2 Colyseus + 1 PG + 1 Redis | push to develop |
 | prod | 正式服務 | 完整 k8s 叢集（HPA） | push to main（需 Review + Approval） |
 
 ### 3.6 CI/CD Pipeline（GitHub Actions）
@@ -403,18 +405,19 @@ player-bet phase（每人 30s）：
 showdown phase（≤ 1s）：
 1. HandEvaluator 計算每位玩家點數（sum mod 10，三公=3張10點牌）
 2. D8 比牌（花色排名 > 點數排名）
-3. SettlementEngine.settle()：三步驟結算
+3. SettlementEngine.settle()：多步驟原子性結算（比牌 → 莊家破產檢查 D13 → 籌碼分配 → Rake 計算 → 籌碼守恆驗證）
 
 settled phase（≈ 5s）：
 1. 廣播 showdown_reveal（所有未 Fold 手牌）
 2. 廣播 SettlementState（結算結果）
 3. PostgreSQL（SERIALIZABLE 事務）：
    a. UPDATE users SET chip_balance 每位玩家
-   b. INSERT INTO chip_transactions（每人一筆 + rake 一筆）
+   b. INSERT INTO chip_transactions（每人一筆 + rake 一筆，rake user_id = SYSTEM_ACCOUNT_UUID）
    c. INSERT INTO game_sessions（結算快照）
-   d. UPDATE leaderboard_weekly / Redis ZADD
+   d. Redis ZADD lb:weekly（排行榜更新，跳過 show_in_leaderboard=false 玩家）
 4. AntiAddictionManager.persistTimers()
-5. 5s 後 resetForNextRound()，若 players.size ≥ 2 → 'dealing'
+5. 偵測 chip_balance < 500 → 觸發救援籌碼檢查（rescue_chips 私人訊息或 rescue_not_available 通知）
+6. 5s 後 resetForNextRound()，若 players.size ≥ 2 → 'dealing'；否則 → 'waiting'
 ```
 
 ### 5.4 結算引擎籌碼守恆驗證
@@ -596,7 +599,7 @@ if current > tonumber(ARGV[1]) then return redis.call('TTL', KEYS[1]) else retur
 稽核：所有 Admin 操作記入 audit_log
 高風險操作：封號（POST /api/v1/admin/player/:id/ban）
 TOTP 2FA：OQ-3（待決策，預計 2026-05-15）
-Colyseus Monitor：Production 禁用；Staging 可用；Production 需 VPN + BasicAuth
+Colyseus Monitor：Production 預設禁用（`NODE_ENV=production` 時不掛載 monitor middleware）；Staging 可用；若 Production 環境需啟用，須使用 k8s NetworkPolicy 限制僅 VPN/Bastion IP 可存取，並加入 BasicAuth
 ```
 
 ---
@@ -607,13 +610,14 @@ Colyseus Monitor：Production 禁用；Staging 可用；Production 需 VPN + Bas
 
 | 指標類別 | 指標名稱 | 告警閾值 | 動作 |
 |---------|---------|---------|------|
-| CCU | `colyseus_room_clients_total` | > 450（單節點）| PagerDuty Warning |
+| CCU | `colyseus_room_clients_total` | > 450（單節點）| PagerDuty Warning（輔助告警，HPA 仍僅由 CPU > 70% 觸發）|
 | 延遲 | `websocket_latency_p95_ms` | > 100ms | PagerDuty Warning |
 | 延遲 | `websocket_latency_p99_ms` | > 500ms | PagerDuty Critical |
 | 錯誤率 | `api_error_rate_5xx` | > 1% | PagerDuty |
 | 房間數 | `colyseus_rooms_total` | > 350（單節點）| PagerDuty Warning |
 | 籌碼守恆 | `chip_conservation_violation` | > 0 | PagerDuty Critical（SRE ≤ 15min）|
 | 負值餘額 | `chip_balance_negative_count` | > 0 | PagerDuty Critical |
+| 異常抽水 | `rake_exceeds_theoretical_max` | > 0 | PagerDuty Critical |
 | DB Lag | `postgres_replication_lag_bytes` | > 10MB | PagerDuty Warning |
 | Redis 記憶體 | `redis_memory_usage_percent` | > 80% | PagerDuty Warning |
 | SLA | `service_availability_percent` | < 99.9% | PagerDuty Critical |
@@ -622,11 +626,13 @@ Colyseus Monitor：Production 禁用；Staging 可用；Production 需 VPN + Bas
 
 | 規則名稱 | 表達式 | 持續時間 | Severity | 路由 |
 |---------|--------|---------|---------|------|
-| `ChipConservationViolation` | `chip_conservation_violation > 0` | 0m（立即）| critical | PagerDuty |
-| `HighErrorRate` | `api_error_rate_5xx > 0.01` | 2m | warning | Slack #alerts-sam-gong |
-| `ColyseusLatencyHigh` | `ws_latency_p95 > 100` | 3m | warning | Slack #alerts-sam-gong |
-| `DatabaseFailover` | `pg_primary_unavailable == 1` | 0m（立即）| critical | PagerDuty |
-| `AntiAddictionMiss` | `anti_addiction_session_write_failure > 0` | 0m（立即）| critical | PagerDuty |
+| `ChipConservationViolation` | `chip_conservation_violation > 0` | 0m（立即）| critical | PagerDuty（立即）|
+| `HighErrorRate` | `api_error_rate_5xx > 0.01` | 2m | warning | Slack #alerts-sam-gong（5 分鐘匯聚）|
+| `ColyseusLatencyHigh` | `ws_latency_p95 > 100` | 3m | warning | Slack #alerts-sam-gong（5 分鐘匯聚）|
+| `DatabaseFailover` | `pg_primary_unavailable == 1` | 0m（立即）| critical | PagerDuty（立即）|
+| `AntiAddictionMiss` | `anti_addiction_session_write_failure > 0` | 0m（立即）| critical | PagerDuty（立即）|
+
+告警路由：`critical` → PagerDuty（立即）；`warning` → Slack #alerts-sam-gong（5 分鐘匯聚）。
 
 **On-call Escalation**：L1（SRE On-call）→ 5min → L2（Tech Lead）→ 10min → L3（CTO）
 
