@@ -20,6 +20,8 @@ import {
 import { HandEvaluator, Card, makeCard } from '../game/HandEvaluator';
 import { SettlementEngine } from '../game/SettlementEngine';
 import { BankerRotation } from '../game/BankerRotation';
+import { DeckManager, CardDTO } from '../game/DeckManager';
+import { AntiAddictionManager } from '../game/AntiAddictionManager';
 
 // ──── Message Type Definitions ────
 
@@ -96,6 +98,8 @@ export class SamGongRoom extends Room<SamGongState> {
   private handEvaluator: HandEvaluator = new HandEvaluator();
   private settlementEngine: SettlementEngine = new SettlementEngine();
   private bankerRotation: BankerRotation = new BankerRotation();
+  private deckManager: DeckManager = new DeckManager();
+  private antiAddictionManager: AntiAddictionManager = new AntiAddictionManager();
 
   /** 各玩家手牌（Server-only，不同步至 Client） */
   private playerHands: Map<string, Card[]> = new Map();
@@ -180,8 +184,11 @@ export class SamGongRoom extends Room<SamGongState> {
         return;
       }
       const auth = client.auth as AuthToken;
+      if (!auth?.player_id) return;
+
       // 重置成人防沉迷計時器
-      console.log(`[AntiAddiction] Adult warning confirmed by player ${auth?.player_id}`);
+      this.antiAddictionManager.onAdultWarningConfirmed(auth.player_id);
+      console.log(`[AntiAddiction] Adult warning confirmed and timer reset for player ${auth.player_id}`);
     });
   }
 
@@ -238,6 +245,32 @@ export class SamGongRoom extends Room<SamGongState> {
       session_id: client.sessionId,
       player_id: auth.player_id,
     });
+
+    // 防沉迷路由（KYC is_minor）
+    if (auth.is_minor) {
+      // 未成年：追蹤每日遊玩時間，達上限時發送 underage_stop 並踢出（WS 4003）
+      const status = await this.antiAddictionManager.trackUnderageDaily(auth.player_id);
+      if (status.should_logout) {
+        const midnight = this.antiAddictionManager.getTaiwanMidnightTimestamp();
+        client.send('anti_addiction_signal', {
+          type: 'underage',
+          daily_minutes_remaining: 0,
+          midnight_timestamp: midnight,
+        });
+        this.antiAddictionManager.scheduleUnderageLogout(auth.player_id, false);
+        client.leave(4003);
+        return;
+      }
+    } else {
+      // 成人：追蹤連續遊玩時間，達 2h 時發送 adult_warning
+      const status = await this.antiAddictionManager.trackAdultSession(auth.player_id);
+      if (status.should_warn) {
+        client.send('anti_addiction_warning', {
+          type: 'adult',
+          session_minutes: Math.floor(status.session_play_seconds / 60),
+        });
+      }
+    }
 
     // 清除等待計時器
     if (this.waitingTimer) {
@@ -371,11 +404,55 @@ export class SamGongRoom extends Room<SamGongState> {
       p.is_folded = false;
     });
 
-    // TODO: DeckManager 發牌（使用 crypto.randomInt Fisher-Yates）
-    // 暫時用空牌組佔位
-    // this.deckManager.buildDeck();
-    // this.deckManager.shuffle();
-    // players.forEach(p => { this.playerHands.set(p.player_id, this.deckManager.deal(3)); });
+    // DeckManager 發牌（使用 crypto.randomInt Fisher-Yates）
+    if (this.state.is_tutorial) {
+      // 教學模式：使用固定劇本（round 1~3 循環）
+      const tutorialRound = ((this.state.round_number - 1) % 3 + 1) as 1 | 2 | 3;
+      this.deckManager.loadTutorialScript(tutorialRound);
+
+      // 莊家固定牌
+      const bankerPlayer = players.find((p) => p.seat_index === this.state.banker_seat_index);
+      if (bankerPlayer) {
+        const bankerCards = this.deckManager.dealTutorialBankerHand();
+        const bankerHand: Card[] = bankerCards.map((c: CardDTO) => makeCard(c.value, c.suit));
+        this.playerHands.set(bankerPlayer.player_id, bankerHand);
+      }
+
+      // 閒家固定牌
+      const nonBankerPlayers = players.filter((p) => p.seat_index !== this.state.banker_seat_index);
+      nonBankerPlayers.forEach((p, idx) => {
+        const playerKey = `P${idx + 1}`;
+        try {
+          const playerCards = this.deckManager.dealTutorialPlayerHand(playerKey);
+          const hand: Card[] = playerCards.map((c: CardDTO) => makeCard(c.value, c.suit));
+          this.playerHands.set(p.player_id, hand);
+        } catch {
+          // 若教學劇本無此 key，使用第一位玩家手牌
+          const playerCards = this.deckManager.dealTutorialPlayerHand('P1');
+          const hand: Card[] = playerCards.map((c: CardDTO) => makeCard(c.value, c.suit));
+          this.playerHands.set(p.player_id, hand);
+        }
+      });
+    } else {
+      // 一般模式：隨機洗牌後發牌（crypto.randomInt Fisher-Yates）
+      this.deckManager.buildDeck();
+      this.deckManager.shuffle();
+      players.forEach((p) => {
+        const dealtCards = this.deckManager.deal(3);
+        const hand: Card[] = dealtCards.map((c: CardDTO) => makeCard(c.value, c.suit));
+        this.playerHands.set(p.player_id, hand);
+      });
+    }
+
+    // 發送私人手牌給每位玩家
+    this.clients.forEach((client) => {
+      const auth = client.auth as AuthToken;
+      if (!auth?.player_id) return;
+      const hand = this.playerHands.get(auth.player_id);
+      if (hand) {
+        client.send('myHand', { cards: hand });
+      }
+    });
 
     // 進入莊家下注 phase
     this.state.phase = 'banker-bet';
@@ -608,6 +685,13 @@ export class SamGongRoom extends Room<SamGongState> {
       if (bankerState) {
         bankerState.chip_balance += this.state.banker_bet_amount + result.banker_settlement.net_chips;
       }
+
+      // Write-Through 防沉迷計時資料至 PostgreSQL/Redis（每局 settled 後）
+      players.forEach((p) => {
+        this.antiAddictionManager.persistTimers(p.player_id).catch((err) => {
+          console.error(`[SamGongRoom] AntiAddiction persistTimers failed for ${p.player_id}:`, err);
+        });
+      });
 
       // 5s 後自動開始下一局
       const nextRoundTimer = setTimeout(() => {

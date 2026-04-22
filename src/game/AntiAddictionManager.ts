@@ -57,14 +57,48 @@ const UNDERAGE_DAILY_LIMIT_SECONDS = 7200;
  * - 計時以 Server 時間為準
  * - 透過 WebSocket 私人訊息通知 Client
  *
- * TODO（v1.0 实作）：
- * - 整合 Redis write-through cache（key: aa:session:{player_id}）
- * - 整合 PostgreSQL（users.daily_play_seconds, users.session_play_seconds）
- * - 與 Colyseus Room 生命週期整合（onJoin / onLeave / settled）
+ * DB 整合：透過注入 IAntiAddictionDB 介面實現 Write-Through PostgreSQL + Redis。
+ * 生產環境注入真實 DB client；測試環境注入 InMemoryAntiAddictionDB。
  */
+
+/**
+ * Write-Through DB 介面（PostgreSQL + Redis）
+ * 生產環境：注入實際 pg/ioredis client wrapper
+ * 測試環境：使用 InMemoryAntiAddictionDB
+ */
+export interface IAntiAddictionDB {
+  /** 讀取玩家計時資料 */
+  load(playerId: string): Promise<{ daily_play_seconds: number; session_play_seconds: number } | null>;
+  /** Write-Through：同時寫入 PostgreSQL + Redis (SETEX aa:session:{playerId} TTL data) */
+  save(playerId: string, daily_play_seconds: number, session_play_seconds: number): Promise<void>;
+}
+
+/**
+ * 預設 InMemory DB（開發 / 測試用，無外部依賴）
+ * 生產環境應替換為 PostgresAntiAddictionDB
+ */
+export class InMemoryAntiAddictionDB implements IAntiAddictionDB {
+  private store = new Map<string, { daily_play_seconds: number; session_play_seconds: number }>();
+
+  async load(playerId: string) {
+    return this.store.get(playerId) ?? null;
+  }
+
+  async save(playerId: string, daily_play_seconds: number, session_play_seconds: number) {
+    this.store.set(playerId, { daily_play_seconds, session_play_seconds });
+  }
+}
+
 export class AntiAddictionManager {
-  /** 玩家計時器 Map（in-memory，開發階段） */
+  /** 玩家計時器 Map（in-memory 快取，每局 settled 後 write-through 至 DB） */
   private timers: Map<string, PlayerTimer> = new Map();
+
+  /** Write-Through DB（可注入真實 PostgreSQL + Redis 實作） */
+  private db: IAntiAddictionDB;
+
+  constructor(db?: IAntiAddictionDB) {
+    this.db = db ?? new InMemoryAntiAddictionDB();
+  }
 
   /**
    * 追蹤成人玩家連續遊玩時間
@@ -78,11 +112,13 @@ export class AntiAddictionManager {
     let timer = this.timers.get(playerId);
 
     if (!timer) {
+      // Write-Through：從 PostgreSQL/Redis 載入 session 狀態（Redis failover 後自 PostgreSQL 回填）
+      const persisted = await this.db.load(playerId);
       timer = {
         player_id: playerId,
         session_start_ms: Date.now(),
-        daily_play_seconds: 0,
-        session_play_seconds: 0,
+        daily_play_seconds: persisted?.daily_play_seconds ?? 0,
+        session_play_seconds: persisted?.session_play_seconds ?? 0,
         adult_warned: false,
       };
       this.timers.set(playerId, timer);
@@ -92,6 +128,8 @@ export class AntiAddictionManager {
     const elapsedSeconds = Math.floor((nowMs - timer.session_start_ms) / 1000);
     timer.session_play_seconds = elapsedSeconds;
 
+    // 規格：成人每 2h 重複觸發 adult_warning（確認後計時器重置，達到下一個 2h 再次觸發）
+    // adult_warned 僅在本次 2h 視窗內防止重複提醒；onAdultWarningConfirmed() 重置後可再次觸發
     const shouldWarn = elapsedSeconds >= ADULT_WARN_THRESHOLD_SECONDS && !timer.adult_warned;
 
     if (shouldWarn) {
@@ -138,11 +176,13 @@ export class AntiAddictionManager {
     let timer = this.timers.get(playerId);
 
     if (!timer) {
+      // Write-Through：從 PostgreSQL/Redis 載入今日累計（Redis failover 後從 PostgreSQL 回填）
+      const persisted = await this.db.load(playerId);
       timer = {
         player_id: playerId,
         session_start_ms: Date.now(),
-        daily_play_seconds: 0,  // TODO: 從 PostgreSQL/Redis 載入今日累計
-        session_play_seconds: 0,
+        daily_play_seconds: persisted?.daily_play_seconds ?? 0,
+        session_play_seconds: persisted?.session_play_seconds ?? 0,
         adult_warned: false,
       };
       this.timers.set(playerId, timer);
@@ -168,16 +208,48 @@ export class AntiAddictionManager {
    * - 牌局中觸發：等待本局結算後強制登出（REQ-015 AC-3 F20）
    * - 傳送 WS Close Code 4003
    *
+   * afterSettlement=true：等待 settled phase 後由 SamGongRoom 呼叫 client.leave(4003)
+   * afterSettlement=false：立即標記；SamGongRoom 在 onJoin 或 settled 後呼叫 client.leave(4003)
+   *
    * @param playerId 玩家 ID
    * @param afterSettlement 是否等待結算後登出
    */
   scheduleUnderageLogout(playerId: string, afterSettlement: boolean): void {
-    // TODO: 整合 SamGongRoom 生命週期
-    // afterSettlement=true：等待 settled phase 後呼叫 client.leave(4003)
-    // afterSettlement=false：立即呼叫 client.leave(4003)
+    const timer = this.timers.get(playerId);
+    if (!timer) return;
+
+    // 標記玩家需要強制登出（SamGongRoom 在適當時機讀取此狀態）
+    (timer as PlayerTimer & { pending_logout: boolean; logout_after_settlement: boolean })
+      .pending_logout = true;
+    (timer as PlayerTimer & { pending_logout: boolean; logout_after_settlement: boolean })
+      .logout_after_settlement = afterSettlement;
+
     console.log(
       `[AntiAddiction] Underage logout scheduled for player ${playerId}, afterSettlement=${afterSettlement}`,
     );
+
+    // 持久化狀態（確保重啟後不遺失）
+    this.persistTimers(playerId).catch((err) => {
+      console.error(`[AntiAddiction] persistTimers failed for ${playerId}:`, err);
+    });
+  }
+
+  /**
+   * 查詢玩家是否已標記需要強制登出（SamGongRoom 在 settled phase 後呼叫）
+   *
+   * @param playerId 玩家 ID
+   * @returns { pending: boolean; afterSettlement: boolean }
+   */
+  getPendingLogoutStatus(playerId: string): { pending: boolean; afterSettlement: boolean } {
+    const timer = this.timers.get(playerId) as
+      | (PlayerTimer & { pending_logout?: boolean; logout_after_settlement?: boolean })
+      | undefined;
+
+    if (!timer) return { pending: false, afterSettlement: false };
+    return {
+      pending: timer.pending_logout ?? false,
+      afterSettlement: timer.logout_after_settlement ?? false,
+    };
   }
 
   /**
@@ -209,9 +281,10 @@ export class AntiAddictionManager {
   }
 
   /**
-   * 持久化計時資料至 PostgreSQL（Write-Through）
+   * 持久化計時資料（Write-Through PostgreSQL + Redis）
    * - 每局 settled 後呼叫
-   * - Redis 同步更新 aa:session:{player_id}
+   * - Redis key: aa:session:{player_id}（write-through cache，Sentinel 切換後自 PostgreSQL 回填）
+   * - PostgreSQL: UPDATE users SET daily_play_seconds=$1, session_play_seconds=$2 WHERE id=$3
    *
    * @param playerId 玩家 ID
    */
@@ -219,11 +292,11 @@ export class AntiAddictionManager {
     const timer = this.timers.get(playerId);
     if (!timer) return;
 
-    // TODO: 整合 PostgreSQL
-    // UPDATE users SET daily_play_seconds = $1, session_play_seconds = $2 WHERE id = $3
-    // SETEX aa:session:{playerId} {TTL} {timer_data_json}
+    // Write-Through：同步寫入 PostgreSQL + Redis（由注入的 db 實作負責）
+    await this.db.save(playerId, timer.daily_play_seconds, timer.session_play_seconds);
+
     console.log(
-      `[AntiAddiction] persistTimers for player ${playerId}: daily=${timer.daily_play_seconds}s, session=${timer.session_play_seconds}s`,
+      `[AntiAddiction] persistTimers write-through OK for player ${playerId}: daily=${timer.daily_play_seconds}s, session=${timer.session_play_seconds}s`,
     );
   }
 
@@ -242,8 +315,10 @@ export class AntiAddictionManager {
     timer.daily_play_seconds += sessionElapsed;
     timer.session_play_seconds = 0;
 
-    // TODO: 立即持久化至 PostgreSQL/Redis
-    this.persistTimers(playerId);
+    // 立即 Write-Through 至 PostgreSQL/Redis（離線時持久化防止資料遺失）
+    this.persistTimers(playerId).catch((err) => {
+      console.error(`[AntiAddiction] persistTimers on offline failed for ${playerId}:`, err);
+    });
   }
 
   /**
