@@ -340,7 +340,7 @@ Token 驗證時：
 {
   "player_id": "uuid",
   "display_name": "string",
-  "avatar_url": "string|null",
+  "avatar_url": "string | null",
   "chip_balance": 100000,
   "age_verified": true,
   "is_minor": false,
@@ -349,11 +349,13 @@ Token 驗證時：
   "music_volume": 70,
   "sfx_volume": 80,
   "vibration": true,
-  "daily_chip_claimed_at": "2026-04-22|null",
+  "daily_chip_claimed_at": "2026-04-22 | null",
   "created_at": "2026-04-22T00:00:00Z",
   "last_login_at": "2026-04-22T10:00:00Z"
 }
 ```
+
+> **Schema 說明**：`avatar_url` 和 `daily_chip_claimed_at` 為 nullable（`string | null`）；未設定時為 `null`。
 
 **Response Codes**：`200` / `401` Token 無效
 
@@ -503,7 +505,7 @@ Token 驗證時：
       "balance_before": 99500,
       "balance_after": 100000,
       "created_at": "2026-04-22T10:00:00Z",
-      "game_session_id": "uuid|null",
+      "game_session_id": "uuid | null",
       "metadata": {}
     }
   ],
@@ -605,7 +607,7 @@ Token 驗證時：
       "rank": 1,
       "player_id": "uuid",
       "display_name": "string",
-      "avatar_url": "string|null",
+      "avatar_url": "string | null",
       "net_chips": 50000,
       "first_win_at": "2026-04-22T08:00:00Z"
     }
@@ -616,6 +618,8 @@ Token 驗證時：
   }
 }
 ```
+
+> **Schema 說明**：`my_rank` 未登入時為 `null`；已登入但未上榜時，`rank` 仍回傳實際名次（排行榜過濾後）。
 
 **Response Codes**：`200` / `400` week 格式錯誤
 
@@ -683,13 +687,15 @@ Token 驗證時：
 **Auth**：JWT Bearer（必填）
 **Rate Limit**：60 次/min/user
 
-**Request Body**（multipart/form-data 或 JSON）：
+**Request Headers**：`Content-Type: application/json`（文件 URL 預先上傳至 S3，此端點僅接收 URL 參照）
+
+**Request Body**：
 ```json
 {
   "kyc_type": "full_kyc",
   "document_type": "national_id|passport",
-  "document_front_url": "string",   // 加密後存儲 URL
-  "document_back_url": "string"
+  "document_front_url": "string",   // 預先加密上傳至 S3 後的 URL
+  "document_back_url": "string"     // 預先加密上傳至 S3 後的 URL
 }
 ```
 
@@ -717,11 +723,13 @@ Token 驗證時：
 ```json
 {
   "kyc_type": "full_kyc",
-  "status": "pending|approved|rejected",
+  "status": "pending | approved | rejected",
   "submitted_at": "2026-04-22T10:00:00Z",
-  "reviewed_at": "2026-04-23T10:00:00Z|null"
+  "reviewed_at": "2026-04-23T10:00:00Z | null"
 }
 ```
+
+> **Schema 說明**：`status` 枚舉值為 `pending`、`approved`、`rejected`；`reviewed_at` 為 nullable，未審核時為 `null`。
 
 **Response Codes**：`200` / `401` Token 無效
 
@@ -809,9 +817,11 @@ Token 驗證時：
   "banned": true,
   "ban_reason": "string",
   "banned_at": "2026-04-22T10:00:00Z",
-  "banned_until": "2026-04-29T10:00:00Z|null"
+  "banned_until": "2026-04-29T10:00:00Z | null"
 }
 ```
+
+> **Schema 說明**：`banned_until` 為 nullable；`null` 代表永久封號（`duration_days: null`）。
 
 **封號附帶效果**（Server 端）：
 ```
@@ -831,7 +841,16 @@ Token 驗證時：
 **Auth**：Admin JWT（role=admin）
 **Rate Limit**：內網 VPN Only
 
-**Query Parameters**：`from`, `to`（日期），`player_id`（可選），`action`（可選）
+**Query Parameters**：
+
+| 參數 | 類型 | 必填 | 說明 |
+|------|------|:----:|------|
+| `from` | date | 否 | 起始日期（ISO 8601，如 `2026-04-01`） |
+| `to` | date | 否 | 結束日期（ISO 8601，如 `2026-04-30`） |
+| `player_id` | uuid | 否 | 篩選特定玩家的稽核記錄 |
+| `action` | string | 否 | 篩選操作類型（如 `ban_player\|adjust_chips`） |
+| `page` | int | 否 | 頁碼（預設 1） |
+| `limit` | int | 否 | 每頁筆數（預設 20，最大 100） |
 
 **Response 200**：
 ```json
