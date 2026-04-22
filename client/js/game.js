@@ -712,6 +712,12 @@ function checkBetTransitions(newS) {
   // 同時涵蓋「最後一位跟注直接觸發 showdown」的情境（此時 newS.phase 已是 showdown）
   if (newS.phase === 'player-bet' || _prevPhase === 'player-bet') {
     allP.forEach(p => {
+      // BUG-20260422-017：觀察者 / 排隊者 has_acted 被 server 強制設 true 以避開輪次，
+      //                  那個 state flip 不代表真的跟注 → 不該觸發金幣飛到獎池動畫
+      if (p.is_spectator || p.is_waiting_next_round) {
+        _prevActedSeats.add(p.seat_index);   // 標記已見過，避免之後誤觸
+        return;
+      }
       if (!p.is_banker && p.has_acted && !_prevActedSeats.has(p.seat_index)) {
         const fromEl = elForSeat(p.seat_index);  // BUG-20260422-005：用相對映射
         if (fromEl) {
