@@ -10,8 +10,8 @@
 |------|------|
 | **DOC-ID** | ARCH-SAM-GONG-GAME-20260422 |
 | **專案名稱** | 三公遊戲（Sam Gong 3-Card Poker）即時多人線上平台 |
-| **文件版本** | v1.0 |
-| **狀態** | DRAFT（STEP-09 自動生成，依 EDD v1.4-draft） |
+| **文件版本** | v1.1 |
+| **狀態** | DRAFT（STEP-10 Review 完成，依 EDD v1.4-draft） |
 | **作者** | Evans Tseng（由 STEP-09 自動生成） |
 | **日期** | 2026-04-22 |
 | **來源 EDD** | EDD-SAM-GONG-GAME-20260422 v1.4-draft |
@@ -23,7 +23,8 @@
 | 版本 | 日期 | 作者 | 變更摘要 |
 |------|------|------|---------|
 | v1.0 | 2026-04-22 | STEP-09 | 初稿；依 EDD v1.4-draft 生成；涵蓋系統架構、組件設計、部署拓樸、安全架構、可觀測性、TDR |
-| v1.1 | 2026-04-22 | STEP-10 Round 1 | 修復 7 個 findings：F1 readiness probe 說明補齊（Room state init）；F2 Redis Key Pattern 補充 active_device（多裝置登入偵測）；F3 staging 環境描述補充 Beta 測試；F4 監控表補充 rake_exceeds_theoretical_max 指標；F5 CCU 告警說明強調非 HPA 觸發；F6 Alertmanager 規則補充路由說明（critical→PagerDuty/warning→Slack 5min 匯聚）；F7 Colyseus Monitor 矛盾說明修正（Production 預設禁用）；F8 settled phase 補充 rescue_chips 觸發機制及結算步驟描述精確化 |
+| v1.1 | 2026-04-22 | STEP-10 Round 1 | 修復 8 個 findings：F1 readiness probe 說明補齊（DB+Redis+Room state init）；F2 Redis Key Pattern 補充 active_device（多裝置登入偵測）；F3 staging 環境描述補充 Beta 測試；F4 監控表補充 rake_exceeds_theoretical_max 指標；F5 CCU 告警說明強調非 HPA 觸發；F6 Alertmanager 規則補充路由說明（critical→PagerDuty/warning→Slack 5min 匯聚）；F7 Colyseus Monitor 矛盾說明修正（Production 預設禁用）；F8 settled phase 補充 rescue_chips 觸發機制及結算步驟描述精確化 |
+| v1.1 | 2026-04-22 | STEP-10 Round 2 | 修復 4 個 findings：F1 Document Control 版本號更新為 v1.1；F2 SettlementEngine 模組描述修正（多步驟原子性結算）；F3 §6.1 Pub/Sub 補充 force_disconnect_device 頻道；F4 頁腳版本號更新 |
 
 ---
 
@@ -128,7 +129,7 @@ graph TB
 server/src/game/
 ├── DeckManager.ts          — 洗牌（Fisher-Yates + crypto.randomInt）、發牌
 ├── HandEvaluator.ts        — 點數計算（mod 10）、D8 比牌（花色/點數排名）
-├── SettlementEngine.ts     — 三步驟結算、Rake 計算、莊家破產（D13 先到先得）
+├── SettlementEngine.ts     — 多步驟原子性結算（比牌→破產檢查→籌碼分配→Rake→守恆驗證）、莊家破產（D13 先到先得）
 ├── AntiAddictionManager.ts — 防沉迷計時器（成人 2h 提醒 / 未成年 2h 硬停）
 ├── BankerRotation.ts       — 輪莊邏輯（順時鐘、跳過破產莊家）
 └── TutorialScriptEngine.ts — 教學固定劇本（R1/R2/R3）
@@ -447,7 +448,7 @@ settled phase（≈ 5s）：
 **跨節點協調機制：**
 - `@colyseus/redis-presence`：Room Presence 資訊存於 Redis，所有 Pod 共享
 - Matchmaking Queue：Redis List/Sorted Set 集中管理（`mm:queue:{tier_name}`）
-- Pub/Sub：封號踢出廣播（`sam-gong:admin:force_disconnect`）
+- Pub/Sub：封號踢出廣播（`sam-gong:admin:force_disconnect`）；多裝置重複登入踢出（`sam-gong:admin:force_disconnect_device`）
 
 ### 6.2 PostgreSQL 讀寫分離
 
@@ -717,4 +718,4 @@ Colyseus Monitor：Production 預設禁用（`NODE_ENV=production` 時不掛載 
 
 ---
 
-*文件版本 v1.0 — 依 EDD v1.4-draft 生成 — 2026-04-22*
+*文件版本 v1.1 — 依 EDD v1.4-draft 生成，STEP-10 Review 完成 — 2026-04-22*
