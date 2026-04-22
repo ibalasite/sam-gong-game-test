@@ -207,7 +207,7 @@ export class SamGongRoom extends Room<SamGongState> {
 
     // 分配座位（找最小可用 seat_index）
     const usedSeats = new Set(
-      Array.from(this.state.players.values()).map((p) => p.seat_index),
+      (Array.from(this.state.players.values()) as PlayerState[]).map((p) => p.seat_index),
     );
     let seatIndex = 0;
     while (usedSeats.has(seatIndex)) seatIndex++;
@@ -352,7 +352,7 @@ export class SamGongRoom extends Room<SamGongState> {
     this.state.phase = 'dealing';
     this.playerHands.clear();
 
-    const players = Array.from(this.state.players.values());
+    const players = Array.from(this.state.players.values()) as PlayerState[];
 
     // 首局決定莊家
     if (this.state.banker_seat_index === -1) {
@@ -390,7 +390,7 @@ export class SamGongRoom extends Room<SamGongState> {
   private handleAutoMinBet(): void {
     if (this.state.phase !== 'banker-bet') return;
 
-    const bankerPlayer = Array.from(this.state.players.values())
+    const bankerPlayer = (Array.from(this.state.players.values()) as PlayerState[])
       .find((p) => p.seat_index === this.state.banker_seat_index);
 
     if (!bankerPlayer) {
@@ -429,7 +429,7 @@ export class SamGongRoom extends Room<SamGongState> {
 
     const timer = setTimeout(() => {
       // 30s 超時：自動 Fold
-      const player = Array.from(this.state.players.values())
+      const player = (Array.from(this.state.players.values()) as PlayerState[])
         .find((p) => p.seat_index === this.state.current_player_turn_seat);
       if (player && !player.has_acted) {
         player.is_folded = true;
@@ -460,7 +460,7 @@ export class SamGongRoom extends Room<SamGongState> {
     this.state.action_deadline_timestamp = Date.now() + 30_000;
 
     const newTimer = setTimeout(() => {
-      const player = Array.from(this.state.players.values())
+      const player = (Array.from(this.state.players.values()) as PlayerState[])
         .find((p) => p.seat_index === this.state.current_player_turn_seat);
       if (player && !player.has_acted) {
         player.is_folded = true;
@@ -475,7 +475,7 @@ export class SamGongRoom extends Room<SamGongState> {
    * 取得下一個待行動的閒家 seat_index（-1 = 無）
    */
   private getNextPlayerToAct(): number {
-    const players = Array.from(this.state.players.values())
+    const players = (Array.from(this.state.players.values()) as PlayerState[])
       .filter((p) => p.seat_index !== this.state.banker_seat_index && !p.has_acted)
       .sort((a, b) => a.seat_index - b.seat_index);
 
@@ -491,7 +491,7 @@ export class SamGongRoom extends Room<SamGongState> {
     // 廣播所有未 Fold 玩家手牌
     const revealedHands: Record<string, Card[]> = {};
     for (const [playerId, hand] of this.playerHands.entries()) {
-      const player = Array.from(this.state.players.values())
+      const player = (Array.from(this.state.players.values()) as PlayerState[])
         .find((p) => p.player_id === playerId && !p.is_folded);
       if (player) {
         revealedHands[String(player.seat_index)] = hand;
@@ -507,7 +507,7 @@ export class SamGongRoom extends Room<SamGongState> {
    * 執行結算
    */
   private executeSettlement(): void {
-    const players = Array.from(this.state.players.values());
+    const players = Array.from(this.state.players.values()) as PlayerState[];
     const bankerPlayer = players.find((p) => p.seat_index === this.state.banker_seat_index);
 
     if (!bankerPlayer) {
@@ -649,7 +649,7 @@ export class SamGongRoom extends Room<SamGongState> {
     this.playerHands.clear();
 
     // 輪莊
-    const players = Array.from(this.state.players.values());
+    const players = Array.from(this.state.players.values()) as PlayerState[];
     const nextBankerSeat = this.bankerRotation.rotateWithSkip(
       this.state.banker_seat_index,
       players,
@@ -888,7 +888,7 @@ export class SamGongRoom extends Room<SamGongState> {
    */
   private findPlayerByAuth(auth: AuthToken): PlayerState | undefined {
     if (!auth) return undefined;
-    return Array.from(this.state.players.values())
+    return (Array.from(this.state.players.values()) as PlayerState[])
       .find((p) => p.player_id === auth.player_id);
   }
 
