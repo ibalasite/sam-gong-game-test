@@ -187,9 +187,11 @@ async function joinGame(forceRoomId) {
     if (!window.Colyseus) throw new Error('Colyseus SDK 未載入');
     _client = new Colyseus.Client('ws://'+WS_HOST);
     if (roomIdInput) {
+      // 有填房間代號 → 加入指定房間
       _room = await _client.joinById(roomIdInput, { nickname:_nick, token:'dev' });
     } else {
-      _room = await _client.joinOrCreate('sam_gong', { nickname:_nick, token:'dev' });
+      // BUG：無房間代號 → 永遠建立新房間（避免 joinOrCreate 把剛離開的房又配回來）
+      _room = await _client.create('sam_gong', { nickname:_nick, token:'dev' });
     }
     _myId   = _room.sessionId;
     _myHand = [];
@@ -1062,8 +1064,10 @@ function leaveGame() {
              min_bet:100, max_bet:5000, quick_bet_amounts:[],
              current_player_turn_seat:-1, banker_seat_index:-1,
              banker_bet_amount:0, settlement:null };
-  // 清除 URL 房間參數
+  // 清除 URL 房間參數 + 清空輸入框（避免下次建立/加入又回到同一房間）
   history.replaceState(null, '', location.pathname);
+  const roomInp = $('room-join-id');
+  if (roomInp) roomInp.value = '';
   const sb = $('share-box'); if (sb) sb.style.display = 'none';
   $('game').style.display='none';
   $('login').style.display='flex';

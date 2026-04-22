@@ -680,7 +680,11 @@ export class SamGongRoom extends Room<SamGongState> {
    * 執行結算
    */
   private executeSettlement(): void {
-    const players = Array.from(this.state.players.values()) as PlayerState[];
+    // BUG-20260422-001 regression fix：結算只含本局現役玩家，
+    // 中途加入排隊者（is_waiting_next_round=true）未發牌，必須排除，
+    // 否則 SettlementEngine/HandEvaluator 會因空手牌拋 "expected 3 cards, got 0"。
+    const players = (Array.from(this.state.players.values()) as PlayerState[])
+      .filter((p) => !p.is_waiting_next_round);
     const bankerPlayer = players.find((p) => p.seat_index === this.state.banker_seat_index);
 
     if (!bankerPlayer) {
