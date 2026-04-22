@@ -950,6 +950,25 @@ export class SamGongRoom extends Room<SamGongState> {
    * - 輪莊
    */
   private resetForNextRound(): void {
+    // BUG-20260422-019：先 purge 已斷線（is_connected=false）的玩家，
+    // 結算已完成，可以安全清掉 state + 手牌
+    const toPurge: string[] = [];
+    this.state.players.forEach((player, seatKey) => {
+      if (player.is_connected === false) {
+        toPurge.push(seatKey);
+      }
+    });
+    toPurge.forEach((seatKey) => {
+      const p = this.state.players.get(seatKey);
+      if (p) {
+        this.playerHands.delete(p.player_id);
+        this.state.players.delete(seatKey);
+      }
+    });
+    if (toPurge.length > 0) {
+      console.log(`[SamGongRoom] Purged ${toPurge.length} disconnected player(s) at round end`);
+    }
+
     this.state.players.forEach((player) => {
       player.bet_amount = 0;
       player.has_acted = false;
@@ -1208,29 +1227,79 @@ export class SamGongRoom extends Room<SamGongState> {
 
   /**
    * 處理玩家離場（自願或超時）
+   * BUG-20260422-019：依 phase + 是否已押錢決定處理方式，確保不影響其他玩家權益
+   *   - 已押錢（escrow）的人 → 留在 state + 留手牌 → 結算正常跑 → 按牌贏/輸
+   *   - 未押錢的人 → 直接刪除，不影響他人
+   *   - 所有 is_connected=false 的玩家於 resetForNextRound 才真正清掉
    */
   private handlePlayerLeave(playerState: PlayerState): void {
-    // 遊戲進行中：自動 Fold
-    if (
-      this.state.phase === 'player-bet' &&
-      playerState.seat_index === this.state.current_player_turn_seat &&
-      !playerState.has_acted
-    ) {
+    const phase = this.state.phase;
+    const seatKey = String(playerState.seat_index);
+
+    // Case 1：尚未開局 (waiting) 或 觀察者 / 排隊者 → 直接刪，無影響
+    if (phase === 'waiting' || playerState.is_spectator || playerState.is_waiting_next_round) {
+      this.state.players.delete(seatKey);
+      this.playerHands.delete(playerState.player_id);
+      this.handleLeaveCleanup();
+      return;
+    }
+
+    // Case 2：banker-bet 階段莊家自己離開（尚未確認下注 = 無 escrow）→ 中止本局
+    if (phase === 'banker-bet'
+        && playerState.seat_index === this.state.banker_seat_index
+        && this.state.banker_bet_amount === 0) {
+      // 清本局 timer
+      const bt = this.phaseTimers.get('banker_bet');
+      if (bt) { clearTimeout(bt); this.phaseTimers.delete('banker_bet'); }
+      this.state.players.delete(seatKey);
+      this.playerHands.delete(playerState.player_id);
+      // 清本局下注狀態
+      this.state.players.forEach((p) => { p.bet_amount = 0; p.has_acted = false; p.is_folded = false; });
+      this.state.banker_bet_amount = 0;
+      this.state.banker_seat_index = -1;
+      this.state.current_pot = 0;
+      this.state.action_deadline_timestamp = 0;
+      this.state.phase = 'waiting';
+      this.playerHands.clear();
+      console.warn('[SamGongRoom] Banker left before betting — round aborted');
+      this.broadcastRoomState();
+      // 若還有 ≥ 2 位正式玩家，自動啟動新的 game-start countdown
+      this.maybeStartGame();
+      this.handleLeaveCleanup();
+      return;
+    }
+
+    // Case 3：player-bet / showdown / settled / (banker已下注後) 階段，
+    // 離開者可能已押錢。保留在 state 讓結算完成，標記 disconnected。
+    playerState.is_connected = false;
+
+    // 若輪到他而他還沒行動 → 自動 fold 並推進
+    if (phase === 'player-bet'
+        && playerState.seat_index === this.state.current_player_turn_seat
+        && !playerState.has_acted) {
       playerState.is_folded = true;
       playerState.bet_amount = 0;
       playerState.has_acted = true;
       this.advancePlayerTurn();
     }
+    // 否則什麼都不動：
+    //  - 已 call 的：bet_amount / chip_balance 保持，手牌保留，結算會處理
+    //  - 莊家已下注的：escrow 保留，settlement 會從他的 chip_balance 支付
+    //  - showdown / settled：直接讓流程跑完，resetForNextRound 時再清除
 
-    // 從房間移除
-    const seatKey = String(playerState.seat_index);
-    this.state.players.delete(seatKey);
-    this.playerHands.delete(playerState.player_id);
+    this.handleLeaveCleanup();
+  }
 
-    // BUG-20260422-009 + 013：若倒數中「正式玩家」不足 2 人，取消遊戲開始倒數
+  /**
+   * BUG-20260422-019：離開後共用的房間狀態維護
+   * - 取消「遊戲開始倒數」若正式玩家 < 2
+   * - 不足 2 人進 waiting 時啟動 60 秒解散計時器
+   */
+  private handleLeaveCleanup(): void {
+    // 若倒數中「正式玩家」不足 2 人，取消遊戲開始倒數
     if (this.phaseTimers.has('game_start')) {
       const activeCount = (Array.from(this.state.players.values()) as PlayerState[])
-        .filter((p) => !p.is_spectator && !p.is_waiting_next_round).length;
+        .filter((p) => !p.is_spectator && !p.is_waiting_next_round && p.is_connected !== false).length;
       if (activeCount < 2) {
         clearTimeout(this.phaseTimers.get('game_start') as ReturnType<typeof setTimeout>);
         this.phaseTimers.delete('game_start');
