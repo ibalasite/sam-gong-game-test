@@ -82,6 +82,10 @@ export const TIER_CONFIGS: Record<string, { entry_chips: number; min_bet: number
 export const VALID_PHASES = ['waiting', 'dealing', 'banker-bet', 'player-bet', 'showdown', 'settled'] as const;
 export type Phase = typeof VALID_PHASES[number];
 
+// BUG-20260422-012：每位玩家回合行動時限（莊家下注 / 閒家 call|fold）
+// 原本 30 秒，改為 15 秒加快遊戲節奏。30s 重連視窗（onLeave）不受此影響。
+export const TURN_TIMEOUT_MS = 15_000;
+
 /**
  * SamGongRoom — 三公遊戲 Colyseus Room
  *
@@ -539,20 +543,20 @@ export class SamGongRoom extends Room<SamGongState> {
 
     // 進入莊家下注 phase
     this.state.phase = 'banker-bet';
-    this.state.action_deadline_timestamp = Date.now() + 30_000;
+    this.state.action_deadline_timestamp = Date.now() + TURN_TIMEOUT_MS;
 
     // 廣播最新 Room State（新局開始）
     this.broadcastRoomState();
 
     const bankerTimer = setTimeout(() => {
-      // 30s 超時：自動最低下注
+      // 超時：自動最低下注
       this.handleAutoMinBet();
-    }, 30_000);
+    }, TURN_TIMEOUT_MS);
     this.phaseTimers.set('banker_bet', bankerTimer);
   }
 
   /**
-   * 莊家 30s 超時自動最低下注
+   * 莊家回合超時自動最低下注（時限 = TURN_TIMEOUT_MS）
    */
   private handleAutoMinBet(): void {
     if (this.state.phase !== 'banker-bet') return;
@@ -593,13 +597,13 @@ export class SamGongRoom extends Room<SamGongState> {
     }
 
     this.state.current_player_turn_seat = firstPlayer;
-    this.state.action_deadline_timestamp = Date.now() + 30_000;
+    this.state.action_deadline_timestamp = Date.now() + TURN_TIMEOUT_MS;
 
     // 廣播最新 Room State（進入 player-bet phase）
     this.broadcastRoomState();
 
     const timer = setTimeout(() => {
-      // 30s 超時：自動 Fold
+      // 超時：自動 Fold
       const player = (Array.from(this.state.players.values()) as PlayerState[])
         .find((p) => p.seat_index === this.state.current_player_turn_seat);
       if (player && !player.has_acted) {
@@ -607,7 +611,7 @@ export class SamGongRoom extends Room<SamGongState> {
         player.has_acted = true;
       }
       this.advancePlayerTurn();
-    }, 30_000);
+    }, TURN_TIMEOUT_MS);
     this.phaseTimers.set('player_bet', timer);
   }
 
@@ -628,7 +632,7 @@ export class SamGongRoom extends Room<SamGongState> {
     }
 
     this.state.current_player_turn_seat = next;
-    this.state.action_deadline_timestamp = Date.now() + 30_000;
+    this.state.action_deadline_timestamp = Date.now() + TURN_TIMEOUT_MS;
 
     // 廣播最新 Room State（輪至下一位閒家）
     this.broadcastRoomState();
@@ -641,7 +645,7 @@ export class SamGongRoom extends Room<SamGongState> {
         player.has_acted = true;
       }
       this.advancePlayerTurn();
-    }, 30_000);
+    }, TURN_TIMEOUT_MS);
     this.phaseTimers.set('player_bet', newTimer);
   }
 
