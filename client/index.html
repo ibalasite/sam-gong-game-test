@@ -52,8 +52,11 @@
   </div>
 
   <!-- ── floating chat panel ─────────────────── -->
-  <div class="fpanel left">
-    <div class="ptitle">💬 聊天室</div>
+  <div class="fpanel left" id="chat-panel">
+    <div class="ptitle">
+      <span>💬 聊天室</span>
+      <button id="chat-toggle" class="panel-toggle" title="縮小 / 還原" aria-label="縮小聊天室">−</button>
+    </div>
     <div id="chat-log" class="clog"></div>
     <div class="crow">
       <input id="chatinp" type="text" placeholder="輸入訊息..." maxlength="60">

@@ -891,6 +891,23 @@ document.addEventListener('DOMContentLoaded', () => {
     .then(r=>r.json()).then(()=>{ $('apistatus').textContent='✅ 伺服器正常'; })
     .catch(()=>{ $('apistatus').textContent='⚠️ API無回應（port-forward是否開啟？）'; });
 
+  // 聊天室縮小 / 還原（state 存 localStorage，重整後保留）
+  const chatPanel = $('chat-panel');
+  const chatToggle = $('chat-toggle');
+  if (chatPanel && chatToggle) {
+    const applyChatState = (minimized) => {
+      chatPanel.classList.toggle('minimized', minimized);
+      chatToggle.textContent = minimized ? '+' : '−';
+      chatToggle.setAttribute('aria-label', minimized ? '展開聊天室' : '縮小聊天室');
+    };
+    applyChatState(localStorage.getItem('chat_minimized') === '1');
+    chatToggle.addEventListener('click', () => {
+      const nowMin = !chatPanel.classList.contains('minimized');
+      applyChatState(nowMin);
+      localStorage.setItem('chat_minimized', nowMin ? '1' : '0');
+    });
+  }
+
   // 從 URL ?room= 自動帶入房間號碼
   const urlRoom = new URLSearchParams(location.search).get('room');
   if (urlRoom) {

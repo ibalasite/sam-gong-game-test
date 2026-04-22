@@ -116,10 +116,29 @@ input:focus{border-color:var(--gold)}
   box-shadow:0 4px 20px rgba(0,0,0,.6);
   overflow-y:auto;
 }
-.fpanel.left {left:10px}
+.fpanel.left {left:10px; top:auto; bottom:10px; max-height:48vh}
 .fpanel.right{right:10px}
 .ptitle{font-size:.75rem;font-weight:700;color:var(--gold);
-        border-bottom:1px solid var(--border);padding-bottom:6px;letter-spacing:.5px}
+        border-bottom:1px solid var(--border);padding-bottom:6px;letter-spacing:.5px;
+        display:flex;justify-content:space-between;align-items:center;gap:6px}
+
+/* Panel minimize toggle */
+.panel-toggle{
+  background:transparent;border:1px solid var(--border);
+  color:var(--gold);font-size:.95rem;font-weight:700;line-height:1;
+  width:22px;height:22px;border-radius:5px;cursor:pointer;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s,color .15s;
+}
+.panel-toggle:hover{background:rgba(240,192,64,.15);color:#fff}
+
+/* Minimized state: show only title bar */
+.fpanel.minimized{
+  max-height:none;padding:8px 12px;gap:0;overflow:visible;
+  min-height:0;
+}
+.fpanel.minimized .ptitle{border-bottom:none;padding-bottom:0}
+.fpanel.minimized > :not(.ptitle){display:none}
 
 /* Chat log */
 .clog{flex:1;overflow-y:auto;font-size:.75rem;line-height:1.5;min-height:120px;max-height:280px}
