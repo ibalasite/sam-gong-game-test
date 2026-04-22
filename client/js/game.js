@@ -1,494 +1,476 @@
 /**
- * Sam Gong (三公) — Browser Game Client
- * Connects to Colyseus WS game server via colyseus.js
+ * Sam Gong (三公) — Browser Game Client v2
  */
 'use strict';
 
-// ── Config ──────────────────────────────────────────────
-const WS_HOST  = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'localhost:2567'
-  : window.location.host.replace(/:\d+$/, '') + ':2567';
+// ── Config ───────────────────────────────────────────────
+const WS_HOST  = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'localhost:2567' : location.host.replace(/:\d+$/, '') + ':2567';
+const API_HOST = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'localhost:3000' : location.host.replace(/:\d+$/, '') + ':3000';
 
-const API_HOST = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'localhost:3000'
-  : window.location.host.replace(/:\d+$/, '') + ':3000';
+const PHASE_NAMES = {
+  waiting: '等待玩家', dealing: '發牌中',
+  'banker-bet': '莊家下注', 'player-bet': '玩家下注',
+  showdown: '開牌', settled: '結算完成'
+};
 
-const CARD_SUITS = { spade:'♠', heart:'♥', diamond:'♦', club:'♣' };
-const SUIT_CLASSES = { spade:'black', heart:'red', diamond:'red', club:'black' };
-const RANK_MAP = { A:'A',2:'2',3:'3',4:'4',5:'5',6:'6',7:'7',8:'8',9:'9',10:'10',J:'J',Q:'Q',K:'K' };
-const HALL_NAMES = { bronze:'青銅廳', silver:'白銀廳', gold:'黃金廳', platinum:'鉑金廳', diamond:'鑽石廳' };
-const PHASE_NAMES = { waiting:'等待中', dealing:'發牌', 'banker-bet':'莊家下注', 'player-bet':'玩家下注', showdown:'開牌', settled:'結算' };
+// ── App State ────────────────────────────────────────────
+let colyseusClient = null;
+let room           = null;
+let mySessionId    = null;
+let myNickname     = '';
 
-// ── State ────────────────────────────────────────────────
-let client = null;
-let room   = null;
-let mySessionId = null;
-let myNickname  = '';
-let myToken     = null;   // JWT (null in dev mode — bypasses auth)
-let gameState   = null;   // latest Colyseus state snapshot
-let pfPids      = [];
-
-// ── DOM Refs ─────────────────────────────────────────────
-const $ = id => document.getElementById(id);
-const loginScreen  = $('login-screen');
-const lobbyScreen  = $('lobby-screen');
-const gameScreen   = $('game-screen');
-const statusMsg    = $('status-msg');
-const connDot      = $('conn-dot');
-const connLabel    = $('conn-label');
-
-// ── Screen helpers ────────────────────────────────────────
-function showScreen(name) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  $(`${name}-screen`).classList.add('active');
-}
-
-function toast(msg, type = '', duration = 2800) {
-  const c = $('toast-container');
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  t.textContent = msg;
-  c.appendChild(t);
-  setTimeout(() => t.remove(), duration);
-}
-
-function addLog(msg, cls = '') {
-  const log = $('msg-log');
-  if (!log) return;
+// ── Helpers ──────────────────────────────────────────────
+const el  = id => document.getElementById(id);
+const log = (msg, cls = '') => {
+  const box = el('msg-log');
+  if (!box) return;
   const p = document.createElement('p');
   p.className = cls;
   p.textContent = msg;
-  log.appendChild(p);
-  log.scrollTop = log.scrollHeight;
-  if (log.children.length > 60) log.removeChild(log.children[0]);
-}
+  box.appendChild(p);
+  if (box.children.length > 80) box.removeChild(box.children[0]);
+  box.scrollTop = box.scrollHeight;
+};
+const toast = (msg, type = '', ms = 3000) => {
+  const c = el('toast-container');
+  if (!c) return;
+  const d = document.createElement('div');
+  d.className = `toast ${type}`;
+  d.textContent = msg;
+  c.appendChild(d);
+  setTimeout(() => d.remove(), ms);
+};
+const setConn = state => {
+  const dot = el('conn-dot'); const lbl = el('conn-label');
+  if (dot) dot.className = `conn-dot ${state}`;
+  if (lbl) lbl.textContent = state === 'ok' ? '已連線' : state === 'connecting' ? '連線中...' : '已斷線';
+};
 
-function setConn(state) {
-  connDot.className = `conn-dot ${state}`;
-  connLabel.textContent = state === 'ok' ? '已連線' : state === 'connecting' ? '連線中...' : '已斷線';
-}
-
-// ── Card rendering ────────────────────────────────────────
-function renderCard(cardStr, faceDown = false) {
+// ── Card rendering ───────────────────────────────────────
+function makeCardEl(cardStr, faceDown) {
   const div = document.createElement('div');
   if (faceDown || !cardStr) {
     div.className = 'card face-down';
     div.textContent = '🂠';
     return div;
   }
-  // cardStr format: "A♠" or "K♥" or "10♦"
-  const suitMap = {'♠':'spade','♥':'heart','♦':'diamond','♣':'club'};
-  const match = cardStr.match(/^(.+?)(♠|♥|♦|♣)$/);
-  if (!match) { div.className='card'; div.textContent=cardStr; return div; }
-  const [, rank, suitChar] = match;
-  const suit = suitMap[suitChar] || 'spade';
-  div.className = `card ${SUIT_CLASSES[suit] || 'black'}`;
-  div.innerHTML = `<span class="rank">${rank}</span><span class="suit">${suitChar}</span>`;
+  const m = String(cardStr).match(/^(.+?)(♠|♥|♦|♣)$/);
+  if (!m) { div.className = 'card'; div.textContent = cardStr; return div; }
+  const [, rank, suit] = m;
+  const red = suit === '♥' || suit === '♦';
+  div.className = `card ${red ? 'red' : 'black'}`;
+  div.innerHTML = `<span class="rank">${rank}</span><span class="suit">${suit}</span>`;
   return div;
 }
 
-function renderHand(cards, faceDown = false) {
-  const wrap = document.createElement('div');
-  wrap.className = 'hand-cards';
-  const list = Array.isArray(cards) ? cards : [];
-  if (list.length === 0) {
-    for (let i = 0; i < 3; i++) wrap.appendChild(renderCard(null, true));
+// ── MapSchema safe iterator ──────────────────────────────
+// Colyseus MapSchema is NOT a plain object — use .forEach()
+function mapToArray(mapSchema) {
+  const arr = [];
+  if (!mapSchema) return arr;
+  if (typeof mapSchema.forEach === 'function') {
+    mapSchema.forEach((val, key) => arr.push({ key, val }));
   } else {
-    list.forEach(c => wrap.appendChild(renderCard(c, faceDown)));
+    Object.entries(mapSchema).forEach(([key, val]) => arr.push({ key, val }));
   }
-  return wrap;
+  return arr;
 }
 
-// ── Dev-mode join (no JWT) ─────────────────────────────────
+// ── Login / Join ─────────────────────────────────────────
 async function devJoin() {
-  const nick = $('nick-input').value.trim() || '玩家' + Math.floor(Math.random()*9000+1000);
+  const nick = (el('nick-input').value || '').trim() || '玩家' + (Math.random() * 9000 + 1000 | 0);
   myNickname = nick;
-  statusMsg.textContent = '連線中...';
+  const btn = el('join-btn');
+  btn.disabled = true;
+  btn.textContent = '連線中...';
+  el('status-msg').textContent = '';
   setConn('connecting');
+
   try {
-    if (!window.Colyseus) throw new Error('Colyseus SDK 未載入');
-    client = new Colyseus.Client(`ws://${WS_HOST}`);
-    // dev mode: pass nickname (no JWT required when NODE_ENV=development)
-    room = await client.joinOrCreate('sam_gong', { nickname: nick, token: 'dev' });
+    if (!window.Colyseus) throw new Error('Colyseus SDK 未載入，請重新整理');
+    colyseusClient = new Colyseus.Client(`ws://${WS_HOST}`);
+    room = await colyseusClient.joinOrCreate('sam_gong', { nickname: nick, token: 'dev' });
     mySessionId = room.sessionId;
     setConn('ok');
     setupRoomHandlers();
-    showLobbyThen();
+    showGameScreen();
   } catch (e) {
-    statusMsg.textContent = '❌ 連線失敗：' + (e.message || e);
+    const msg = e?.message || String(e);
+    el('status-msg').textContent = '❌ 連線失敗：' + msg;
     setConn('err');
+    btn.disabled = false;
+    btn.textContent = '🎴 進入遊戲';
   }
 }
 
-function showLobbyThen() {
-  // After joining a room, go straight to game table
-  showScreen('game');
-  buildGameTable();
+// ── Show game screen & build UI ──────────────────────────
+function showGameScreen() {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  el('game-screen').classList.add('active');
+  buildTable();
 }
 
-// ── Room event handlers ───────────────────────────────────
-function setupRoomHandlers() {
-  if (!room) return;
+function buildTable() {
+  el('game-screen').innerHTML = `
+    <span class="dev-badge">DEV</span>
 
-  room.onStateChange(state => {
-    gameState = state;
-    updateGameTable(state);
-  });
+    <!-- table felt -->
+    <div class="table-felt">
+      <div class="table-center">
+        <div class="phase-label" id="phase-lbl">等待玩家</div>
+        <div class="pot-amount"  id="pot-lbl">0</div>
+        <div class="hall-label"  id="hall-lbl">青銅廳</div>
+      </div>
 
-  room.onMessage('chat', msg => {
-    addLog(`${msg.nickname}: ${msg.text}`, 'chat');
-  });
-
-  room.onMessage('error', msg => {
-    toast(msg.message || '伺服器錯誤', 'red');
-  });
-
-  room.onMessage('anti_addiction_warning', msg => {
-    toast(`⚠️ 防沉迷警告：${msg.message}`, 'red', 6000);
-    const overlay = $('anti-addiction-overlay');
-    if (overlay) {
-      overlay.style.display = 'flex';
-      $('aa-msg').textContent = msg.message;
-    }
-  });
-
-  room.onMessage('game_started', () => {
-    addLog('🎴 新一局開始！', 'sys');
-    toast('新一局開始！', 'gold');
-    clearResult();
-  });
-
-  room.onMessage('settlement', result => {
-    if (!result) return;
-    const my = result.players && result.players[mySessionId];
-    if (my) {
-      const sign = my.net_chips >= 0 ? '+' : '';
-      const cls  = my.net_chips >= 0 ? 'win' : 'lose';
-      addLog(`結算：${sign}${my.net_chips} 籌碼`, cls);
-      showResult(my.net_chips);
-    }
-    addLog(`抽水：${result.rake || 0}`, 'sys');
-  });
-
-  room.onLeave(code => {
-    setConn('err');
-    addLog(`已離線 (code ${code})`, 'sys');
-    toast('已與伺服器斷線', 'red');
-  });
-
-  room.onError((code, msg) => {
-    toast(`WS 錯誤 ${code}: ${msg}`, 'red');
-  });
-}
-
-// ── Build static game table DOM ───────────────────────────
-function buildGameTable() {
-  const gs = $('game-screen');
-  if (!gs) return;
-
-  gs.innerHTML = `
-    <div class="dev-badge">DEV LOCAL</div>
-    <div class="seats-ring" id="seats-ring"></div>
-
-    <div class="table-center">
-      <div class="phase-label" id="phase-label">等待中</div>
-      <div class="pot-amount" id="pot-amount">0</div>
-      <div class="pot-chips" id="pot-chips"></div>
-      <div class="hall-label" id="hall-label">青銅廳</div>
+      <!-- 6 seats around table -->
+      <div class="seat seat-bottom"  id="seat-0"></div>
+      <div class="seat seat-bl"      id="seat-1"></div>
+      <div class="seat seat-tl"      id="seat-2"></div>
+      <div class="seat seat-top"     id="seat-3"></div>
+      <div class="seat seat-tr"      id="seat-4"></div>
+      <div class="seat seat-br"      id="seat-5"></div>
     </div>
 
-    <!-- Message log -->
-    <div class="msg-log" id="msg-log">
-      <p class="sys">🎴 連線成功！歡迎 ${myNickname}</p>
-    </div>
-
-    <!-- Chat -->
-    <div class="chat-area">
-      <div class="chat-input-row">
-        <input type="text" id="chat-input" placeholder="傳送訊息..." maxlength="40"
-          onkeydown="if(event.key==='Enter')sendChat()">
-        <button onclick="sendChat()">送</button>
+    <!-- message log -->
+    <div class="side-panel left-panel">
+      <div class="panel-title">💬 聊天室</div>
+      <div class="msg-log" id="msg-log"></div>
+      <div class="chat-row">
+        <input id="chat-input" type="text" placeholder="輸入訊息..." maxlength="40">
+        <button id="chat-send-btn" class="btn btn-secondary">送</button>
       </div>
     </div>
 
-    <!-- Action panel -->
-    <div class="action-panel" id="action-panel">
-      <span id="action-hint" style="font-size:0.85rem;color:#aaa">等待其他玩家...</span>
-      <div id="action-buttons" style="display:flex;gap:10px"></div>
-      <div class="bet-input-wrap" id="bet-wrap" style="display:none">
-        <label>下注額</label>
-        <input type="number" id="bet-amount" value="100" min="100" step="100">
+    <!-- action panel -->
+    <div class="side-panel right-panel">
+      <div class="panel-title">🎮 操作</div>
+      <div id="action-area">
+        <p style="color:#666;font-size:.85rem;text-align:center;padding:16px">等待遊戲開始...</p>
+      </div>
+      <div style="margin-top:auto;font-size:.75rem;color:#555;padding:8px 0">
+        房間 ID: <span id="room-id-lbl">${room?.id || '—'}</span><br>
+        我的 ID: <span style="font-family:monospace">${(mySessionId||'').slice(-8)}</span>
       </div>
     </div>
 
-    <!-- Result overlay -->
+    <!-- result overlay -->
     <div class="result-overlay" id="result-overlay">
-      <div class="result-title" id="result-title"></div>
-      <div class="result-detail" id="result-detail"></div>
-      <button class="btn btn-primary" onclick="clearResult()">繼續</button>
+      <div id="result-title" class="result-title"></div>
+      <div id="result-detail" class="result-detail"></div>
+      <button class="btn btn-primary" id="result-ok-btn">繼續</button>
     </div>
 
-    <!-- Anti-addiction overlay -->
-    <div id="anti-addiction-overlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.85);
-      flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:200;backdrop-filter:blur(8px)">
-      <div style="font-size:2rem">⚠️</div>
-      <div id="aa-msg" style="font-size:1.1rem;color:#ffcc80;text-align:center;max-width:360px"></div>
-      <button class="btn btn-primary" onclick="confirmAntiAddiction()">我已了解，繼續遊戲</button>
-    </div>
-
+    <!-- conn bar -->
     <div class="conn-bar">
-      <span><span class="conn-dot ok" id="conn-dot"></span><span id="conn-label">已連線</span>
-        — 房間：${room?.id || '—'} &nbsp;|&nbsp; 我的 ID：${mySessionId || '—'}</span>
-      <span><button style="background:none;border:none;color:#ef5350;cursor:pointer;font-size:0.72rem"
-        onclick="leaveGame()">離開房間</button></span>
+      <span><span class="conn-dot ok" id="conn-dot"></span><span id="conn-label">已連線</span></span>
+      <button class="leave-btn" id="leave-btn">離開房間</button>
     </div>
 
-    <div class="toast-container" id="toast-container2"></div>
+    <div class="toast-container" id="toast-container"></div>
   `;
 
-  // init 6 seats
-  buildSeats();
+  // init all seats to empty
+  for (let i = 0; i < 6; i++) renderSeat(i, null, false);
+
+  // bind events AFTER DOM built
+  el('chat-send-btn').addEventListener('click', sendChat);
+  el('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+  el('leave-btn').addEventListener('click', leaveGame);
+  el('result-ok-btn').addEventListener('click', () => { el('result-overlay').classList.remove('show'); });
+
+  log('🎴 已連線！歡迎 ' + myNickname, 'sys');
+  log('等待其他玩家加入...', 'sys');
 }
 
-function buildSeats() {
-  const ring = $('seats-ring');
-  if (!ring) return;
-  for (let i = 0; i < 6; i++) {
-    const seat = document.createElement('div');
-    seat.className = `seat seat-${i}`;
-    seat.id = `seat-${i}`;
+// ── Seat rendering ───────────────────────────────────────
+function renderSeat(idx, player, isMe) {
+  const seat = el(`seat-${idx}`);
+  if (!seat) return;
+
+  if (!player) {
     seat.innerHTML = `
-      <div class="seat-avatar" id="seat-avatar-${i}">💺</div>
-      <div class="seat-name" id="seat-name-${i}">空位</div>
-      <div class="seat-chips" id="seat-chips-${i}"></div>
-      <div class="hand-cards" id="seat-cards-${i}"></div>
-      <div class="seat-status" id="seat-status-${i}"></div>
-    `;
-    ring.appendChild(seat);
+      <div class="seat-avatar empty">💺</div>
+      <div class="seat-name" style="color:#444">空位</div>`;
+    return;
   }
+
+  const isBanker = room?.state?.banker_session_id === player.session_id;
+  const phase    = room?.state?.phase || 'waiting';
+  const showCards = (phase === 'showdown' || phase === 'settled' || isMe);
+  const cards    = player.hand || [];
+
+  let statusHtml = '';
+  if (player.folded) statusHtml = '<span class="badge badge-fold">棄牌</span>';
+  else if (player.called) statusHtml = '<span class="badge badge-call">跟注</span>';
+  else if (isBanker) statusHtml = '<span class="badge badge-banker">莊</span>';
+
+  let cardsHtml = '';
+  for (let c = 0; c < 3; c++) {
+    const cardStr = cards[c] || null;
+    const div = makeCardEl(cardStr, !showCards || !cardStr);
+    cardsHtml += div.outerHTML;
+  }
+
+  seat.innerHTML = `
+    <div class="seat-avatar${isBanker ? ' banker' : ''}${isMe ? ' me' : ''}">
+      ${isBanker ? '👑' : isMe ? '😊' : '👤'}
+    </div>
+    <div class="seat-name">${esc(player.display_name || player.nickname || '玩家')}</div>
+    <div class="seat-chips">${(player.chip_balance || 0).toLocaleString()} 籌</div>
+    <div class="hand-cards">${cardsHtml}</div>
+    <div class="seat-status">${statusHtml}</div>`;
 }
 
-// ── Update table from state ───────────────────────────────
-function updateGameTable(state) {
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ── State update ─────────────────────────────────────────
+function onStateChange(state) {
   if (!state) return;
-  const phase = state.phase || 'waiting';
-  const el = id => document.getElementById(id);
 
   // Phase + hall
-  if (el('phase-label')) el('phase-label').textContent = PHASE_NAMES[phase] || phase;
-  if (el('hall-label'))  el('hall-label').textContent  = HALL_NAMES[state.hall] || state.hall || '青銅廳';
+  const phaseLbl = el('phase-lbl');
+  const potLbl   = el('pot-lbl');
+  const hallLbl  = el('hall-lbl');
+  if (phaseLbl) phaseLbl.textContent = PHASE_NAMES[state.phase] || state.phase || '等待中';
+  if (potLbl)   potLbl.textContent   = (state.pot || 0).toLocaleString();
+  if (hallLbl)  hallLbl.textContent  = state.tier_config?.tier_name || '青銅廳';
 
-  // Pot
-  const pot = state.pot || 0;
-  if (el('pot-amount')) el('pot-amount').textContent = pot.toLocaleString();
-  renderPotChips(pot);
+  // Build ordered player list: me at seat-0, others fill 1-5
+  const players = mapToArray(state.players).map(e => e.val);
+  const me       = players.find(p => p.session_id === mySessionId);
+  const others   = players.filter(p => p.session_id !== mySessionId);
+  const ordered  = [me, ...others];   // me always at bottom seat
 
-  // Players → seats
-  const players = state.players || {};
-  const playerList = Object.entries(players);
+  for (let i = 0; i < 6; i++) {
+    const p = ordered[i] || null;
+    renderSeat(i, p, i === 0);
+  }
 
-  // Map mySessionId to seat 0, others follow
-  const order = [mySessionId, ...playerList.filter(([id]) => id !== mySessionId).map(([id]) => id)];
-
-  order.forEach((playerId, idx) => {
-    if (idx >= 6) return;
-    const p = players[playerId];
-    if (!p) {
-      clearSeat(idx);
-      return;
-    }
-    const isMe = playerId === mySessionId;
-    const isBanker = state.banker_session_id === playerId;
-
-    if (el(`seat-avatar-${idx}`)) {
-      el(`seat-avatar-${idx}`).textContent = isBanker ? '👑' : (isMe ? '😊' : '👤');
-      el(`seat-avatar-${idx}`).className = `seat-avatar${isBanker ? ' banker-highlight' : ''}${isMe ? ' my-seat' : ''}`;
-    }
-    if (el(`seat-name-${idx}`))   el(`seat-name-${idx}`).textContent  = p.nickname || playerId.slice(-4);
-    if (el(`seat-chips-${idx}`))  el(`seat-chips-${idx}`).textContent = (p.chip_balance || 0).toLocaleString() + ' 籌';
-
-    // Cards
-    const cardEl = el(`seat-cards-${idx}`);
-    if (cardEl) {
-      cardEl.innerHTML = '';
-      const cards = p.hand || [];
-      const reveal = phase === 'showdown' || phase === 'settled' || isMe;
-      for (let c = 0; c < 3; c++) {
-        cardEl.appendChild(renderCard(cards[c] || null, !reveal || !cards[c]));
-      }
-    }
-
-    // Status
-    const st = el(`seat-status-${idx}`);
-    if (st) {
-      if (p.folded)       { st.textContent = '棄牌'; st.className = 'seat-status folded'; }
-      else if (p.called)  { st.textContent = '跟注'; st.className = 'seat-status called'; }
-      else if (isBanker)  { st.textContent = '莊'; st.className = 'seat-status'; }
-      else                { st.textContent = ''; st.className = 'seat-status waiting'; }
-    }
-  });
-
-  // Update action panel
-  updateActionPanel(state);
+  // Action panel
+  updateActions(state, me);
 }
 
-function clearSeat(idx) {
-  const el = id => document.getElementById(id);
-  if (el(`seat-avatar-${idx}`)) el(`seat-avatar-${idx}`).textContent = '💺';
-  if (el(`seat-name-${idx}`))   el(`seat-name-${idx}`).textContent   = '空位';
-  if (el(`seat-chips-${idx}`))  el(`seat-chips-${idx}`).textContent  = '';
-  if (el(`seat-cards-${idx}`))  el(`seat-cards-${idx}`).innerHTML    = '';
-  if (el(`seat-status-${idx}`)) el(`seat-status-${idx}`).textContent = '';
-}
-
-function renderPotChips(pot) {
-  const el = document.getElementById('pot-chips');
-  if (!el) return;
-  el.innerHTML = '';
-  if (pot <= 0) return;
-  const denominations = [10000, 5000, 1000, 500, 100];
-  const classes       = ['chip-10000','chip-5000','chip-1000','chip-500','chip-100'];
-  let remaining = pot;
-  denominations.forEach((d, i) => {
-    const count = Math.min(Math.floor(remaining / d), 5);
-    remaining -= count * d;
-    for (let j = 0; j < count; j++) {
-      const c = document.createElement('div');
-      c.className = `chip ${classes[i]}`;
-      c.textContent = d >= 10000 ? '1W' : d >= 1000 ? (d/1000)+'K' : d;
-      el.appendChild(c);
-    }
-  });
-}
-
-// ── Action panel logic ────────────────────────────────────
-function updateActionPanel(state) {
-  const hint    = document.getElementById('action-hint');
-  const btns    = document.getElementById('action-buttons');
-  const betWrap = document.getElementById('bet-wrap');
-  if (!hint || !btns) return;
+// ── Action Panel ─────────────────────────────────────────
+function updateActions(state, me) {
+  const area = el('action-area');
+  if (!area) return;
+  area.innerHTML = '';
 
   const phase    = state.phase || 'waiting';
-  const me       = state.players && state.players[mySessionId];
   const isBanker = state.banker_session_id === mySessionId;
-  btns.innerHTML = '';
-  if (betWrap) betWrap.style.display = 'none';
 
-  if (!me || me.folded) {
-    hint.textContent = me?.folded ? '已棄牌，等待下一局' : '觀看中...';
+  if (!me) {
+    area.innerHTML = '<p style="color:#555;font-size:.85rem;text-align:center;padding:16px">觀看中</p>';
+    return;
+  }
+
+  if (me.folded) {
+    area.innerHTML = '<p style="color:#ef9a9a;text-align:center;padding:16px">已棄牌，等待下一局</p>';
+    return;
+  }
+
+  if (phase === 'waiting') {
+    const playerCount = mapToArray(state.players).length;
+    if (playerCount < 2) {
+      area.innerHTML = `<p style="color:#aaa;text-align:center;padding:8px">等待更多玩家（${playerCount}/6）</p>`;
+    } else {
+      area.innerHTML = `
+        <p style="color:#80cbc4;text-align:center;font-size:.85rem;margin-bottom:10px">
+          已有 ${playerCount} 名玩家
+        </p>`;
+      addActionBtn(area, '🎯 開始遊戲', 'primary', () => room?.send('ready'));
+    }
     return;
   }
 
   if (phase === 'banker-bet' && isBanker) {
-    hint.textContent = '您是莊家，請下注：';
-    if (betWrap) betWrap.style.display = 'flex';
-    addBtn(btns, '下注', 'primary', () => {
-      const amt = parseInt(document.getElementById('bet-amount')?.value || '100');
+    area.innerHTML = `
+      <p style="color:#f0c040;margin-bottom:8px;font-size:.85rem">您是莊家，請下注：</p>`;
+    const wrap = document.createElement('div');
+    wrap.className = 'bet-wrap';
+    wrap.innerHTML = `
+      <label style="font-size:.8rem;color:#aaa">金額</label>
+      <input type="number" id="bet-input" value="${state.min_bet || 100}"
+        min="${state.min_bet || 100}" max="${state.max_bet || 5000}" step="100"
+        style="width:100%;margin:6px 0">`;
+    area.appendChild(wrap);
+
+    // Quick bet buttons
+    const quickBets = state.tier_config?.quick_bet_amounts;
+    if (quickBets && typeof quickBets.forEach === 'function') {
+      const qrow = document.createElement('div');
+      qrow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin:6px 0';
+      quickBets.forEach(amt => {
+        const b = document.createElement('button');
+        b.className = 'btn btn-secondary';
+        b.style.cssText = 'flex:1;min-width:48px;padding:5px;font-size:.78rem';
+        b.textContent = amt >= 1000 ? (amt/1000)+'K' : amt;
+        b.onclick = () => { const inp = el('bet-input'); if(inp) inp.value = amt; };
+        qrow.appendChild(b);
+      });
+      area.appendChild(qrow);
+    }
+
+    addActionBtn(area, '✅ 確認下注', 'primary', () => {
+      const amt = parseInt(el('bet-input')?.value || state.min_bet || 100);
       room?.send('banker_bet', { amount: amt });
     });
-  } else if (phase === 'player-bet' && !isBanker && !me.called) {
-    hint.textContent = '請選擇行動：';
-    if (betWrap) betWrap.style.display = 'flex';
-    addBtn(btns, '跟注', 'primary', () => {
-      const amt = parseInt(document.getElementById('bet-amount')?.value || '100');
+    return;
+  }
+
+  if (phase === 'player-bet' && !isBanker && !me.called) {
+    area.innerHTML = `
+      <p style="color:#80cbc4;margin-bottom:8px;font-size:.85rem">請選擇操作：</p>`;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <input type="number" id="bet-input" value="${state.min_bet || 100}"
+        min="${state.min_bet || 100}" max="${state.max_bet || 5000}" step="100"
+        style="width:100%;margin:4px 0 10px">`;
+    area.appendChild(wrap);
+
+    addActionBtn(area, '💰 跟注', 'primary', () => {
+      const amt = parseInt(el('bet-input')?.value || state.min_bet || 100);
       room?.send('call', { amount: amt });
     });
-    addBtn(btns, '看牌', 'secondary', () => room?.send('see_cards'));
-    addBtn(btns, '棄牌', 'danger', () => {
-      if (confirm('確定要棄牌嗎？')) room?.send('fold');
+    addActionBtn(area, '👁 看牌', 'secondary', () => room?.send('see_cards'));
+    addActionBtn(area, '✋ 棄牌', 'danger', () => {
+      if (confirm('確定棄牌？')) room?.send('fold');
     });
-  } else if (phase === 'waiting') {
-    hint.textContent = '等待開始...';
-    if (Object.keys(state.players || {}).length >= 2) {
-      addBtn(btns, '準備好了', 'primary', () => room?.send('ready'));
-    }
-  } else if (phase === 'showdown' || phase === 'settled') {
-    hint.textContent = '本局結束，等待下一局';
-  } else {
-    hint.textContent = `${PHASE_NAMES[phase] || phase} — 等待中`;
+    return;
   }
+
+  if (phase === 'showdown' || phase === 'settled') {
+    area.innerHTML = '<p style="color:#aaa;text-align:center;padding:16px">本局結束，等待下一局...</p>';
+    return;
+  }
+
+  area.innerHTML = `<p style="color:#666;text-align:center;padding:16px">${PHASE_NAMES[phase] || phase}</p>`;
 }
 
-function addBtn(container, label, type, onClick) {
+function addActionBtn(container, label, type, onClick) {
   const b = document.createElement('button');
   b.className = `btn btn-${type}`;
+  b.style.cssText = 'width:100%;margin-bottom:8px';
   b.textContent = label;
   b.onclick = onClick;
   container.appendChild(b);
 }
 
-// ── Game actions ──────────────────────────────────────────
-function sendChat() {
-  const input = document.getElementById('chat-input');
-  if (!input || !input.value.trim()) return;
-  room?.send('send_chat', { text: input.value.trim() });
-  input.value = '';
-}
+// ── Room handlers ─────────────────────────────────────────
+function setupRoomHandlers() {
+  room.onStateChange(state => onStateChange(state));
 
-function confirmAntiAddiction() {
-  room?.send('confirm_anti_addiction', { type: 'adult' });
-  const overlay = document.getElementById('anti-addiction-overlay');
-  if (overlay) overlay.style.display = 'none';
-}
+  room.onMessage('my_session_info', data => {
+    mySessionId = data.session_id;
+    log(`✅ 已進入房間（session: ${data.session_id.slice(-6)}）`, 'sys');
+  });
 
-function leaveGame() {
-  if (confirm('確定要離開房間嗎？')) {
-    room?.leave();
-    room = null;
-    showScreen('login');
+  room.onMessage('chat', msg => {
+    log(`${msg.nickname || '玩家'}: ${msg.text}`, 'chat');
+  });
+
+  room.onMessage('send_chat', msg => {  // some servers echo with different key
+    log(`${msg.nickname || '玩家'}: ${msg.text}`, 'chat');
+  });
+
+  room.onMessage('game_started', () => {
+    log('🃏 新一局開始！', 'sys');
+    toast('新一局開始！', 'gold');
+    const o = el('result-overlay');
+    if (o) o.classList.remove('show');
+  });
+
+  room.onMessage('settlement', result => {
+    if (!result) return;
+    const me = result.players?.[mySessionId];
+    if (me) {
+      const sign = me.net_chips >= 0 ? '+' : '';
+      log(`💰 結算：${sign}${me.net_chips} 籌碼`, me.net_chips >= 0 ? 'win' : 'lose');
+      showResult(me.net_chips);
+    }
+    if (result.rake) log(`抽水：${result.rake} 籌碼`, 'sys');
+  });
+
+  room.onMessage('anti_addiction_warning', msg => {
+    toast('⚠️ ' + (msg.message || '防沉迷提示'), 'red', 6000);
+    log('⚠️ 防沉迷警告：' + (msg.message || ''), 'sys');
+  });
+
+  room.onMessage('error', msg => {
+    toast('❌ ' + (msg.message || '錯誤'), 'red');
+    log('❌ ' + (msg.message || ''), 'sys');
+  });
+
+  room.onLeave(code => {
     setConn('err');
-  }
+    log(`已離線 (code ${code})`, 'sys');
+    if (code !== 1000) toast('已與伺服器斷線', 'red');
+  });
+
+  room.onError((code, msg) => {
+    toast(`WS 錯誤 ${code}`, 'red');
+    log(`WS 錯誤 ${code}: ${msg}`, 'sys');
+  });
+}
+
+// ── Chat ─────────────────────────────────────────────────
+function sendChat() {
+  const inp = el('chat-input');
+  if (!inp) return;
+  const text = inp.value.trim();
+  if (!text) return;
+  if (!room) { toast('尚未連線', 'red'); return; }
+  room.send('send_chat', { text });
+  // echo locally immediately
+  log(`${myNickname}: ${text}`, 'chat');
+  inp.value = '';
+  inp.focus();
+}
+
+// ── Leave / Result ────────────────────────────────────────
+function leaveGame() {
+  if (!confirm('確定要離開房間嗎？')) return;
+  room?.leave();
+  room = null;
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  el('login-screen').classList.add('active');
+  setConn('err');
+  el('status-msg').textContent = '已離開房間';
+  el('join-btn').disabled = false;
+  el('join-btn').textContent = '🎴 進入遊戲';
 }
 
 function showResult(netChips) {
-  const overlay = document.getElementById('result-overlay');
-  const title   = document.getElementById('result-title');
-  const detail  = document.getElementById('result-detail');
-  if (!overlay || !title) return;
+  const o = el('result-overlay');
+  const t = el('result-title');
+  const d = el('result-detail');
+  if (!o || !t) return;
   if (netChips > 0) {
-    title.textContent = '🏆 勝利！';
-    title.className   = 'result-title win';
-    detail.textContent = `贏得 +${netChips.toLocaleString()} 籌碼`;
+    t.textContent = '🏆 勝利！'; t.className = 'result-title win';
+    d.textContent = `贏得 +${netChips.toLocaleString()} 籌碼`;
   } else if (netChips < 0) {
-    title.textContent = '💸 敗北';
-    title.className   = 'result-title lose';
-    detail.textContent = `失去 ${netChips.toLocaleString()} 籌碼`;
+    t.textContent = '💸 敗北'; t.className = 'result-title lose';
+    d.textContent = `失去 ${Math.abs(netChips).toLocaleString()} 籌碼`;
   } else {
-    title.textContent = '🤝 平局';
-    title.className   = 'result-title tie';
-    detail.textContent = '本局平手';
+    t.textContent = '🤝 平局'; t.className = 'result-title tie';
+    d.textContent = '本局平手';
   }
-  overlay.classList.add('show');
-}
-
-function clearResult() {
-  const o = document.getElementById('result-overlay');
-  if (o) o.classList.remove('show');
+  o.classList.add('show');
 }
 
 // ── Init ──────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
-  showScreen('login');
-
-  // Check server health
+document.addEventListener('DOMContentLoaded', () => {
   fetch(`http://${API_HOST}/api/v1/health`)
     .then(r => r.json())
-    .then(d => {
-      statusMsg.textContent = `✅ 伺服器正常 (${d.env || 'dev'})`;
-    })
-    .catch(() => {
-      statusMsg.textContent = '⚠️ 無法連到 API 伺服器，確認 port-forward 是否開啟';
-    });
+    .then(() => { el('status-msg').textContent = '✅ 伺服器連線正常'; })
+    .catch(() => { el('status-msg').textContent = '⚠️ API 伺服器無回應'; });
 
-  // Enter key to join
-  document.getElementById('nick-input')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') devJoin();
-  });
+  el('nick-input').addEventListener('keydown', e => { if (e.key === 'Enter') devJoin(); });
 });
 
-// Expose globals for onclick
-window.devJoin           = devJoin;
-window.sendChat          = sendChat;
-window.confirmAntiAddiction = confirmAntiAddiction;
-window.leaveGame         = leaveGame;
-window.clearResult       = clearResult;
+window.devJoin = devJoin;
