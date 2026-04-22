@@ -2320,6 +2320,16 @@ APM：
 
 ## 變更追蹤
 
+### BUG-20260422-003：結算亮牌順序 + 發牌動畫 + 自己手牌逐張翻開（Client only）
+- **狀態**：✅ DONE
+- **分類**：BUG / 工程（純 Client UX）
+- **日期**：2026-04-22
+- **描述**：使用者回報 (1) 開牌順序應為「閒家全部先亮牌後，莊家最後亮牌決定輸贏」；(2) 發牌不該牌直接出現，應有「莊家 round-table 逐張飛牌」動畫；(3) 自己的手牌該逐張翻面增加刺激感。原實作 `startShowdownSequence` 以 seat_index 升序亮牌，莊家順序不固定；發牌 `myHand` 訊息抵達即顯示 3 張 face-up，無過渡動畫。
+- **影響範圍**：純 Client — `client/js/game.js` showdown 排序、新增發牌動畫狀態機 / 飛牌函式 / 逐張翻面邏輯、`handHTML` 擴充；`client/css/style.css` 新增 `.fly-card` 與 `.card.ghost`。Server / Schema 不變（`myHand` 私訊時機不動，Client 端僅視覺包裝）。
+- **修正/實作內容**：(1) `startShowdownSequence` 排序改為「非莊家閒家 seat_index 升序 + 莊家最後」；(2) 新增 `flyCard(from, to, onLand)` 420ms 卡背飛行動畫 + `startDealAnimation()` 3 輪（每輪 N 座位，140ms / 張），由莊家座位順時鐘飛出，莊家自己最後收牌；(3) 自己的卡片飛抵時 `_myHandRevealedCount++` 並 `coinDrop` 音效；(4) `handHTML(cards, reveal, dealtCount)` 以 `.card.ghost` 佔位保留 layout；(5) `myHand` handler 判斷是否為新一局（比對前後手牌差異）才觸發動畫，重連不重播。
+- **commit**：`7e98bd9`
+- **完成日期**：2026-04-22
+
 ### BUG-20260422-002：current_pot 實作違反 Schema 註解語意 — 修正為僅含閒家跟注
 - **狀態**：✅ DONE
 - **分類**：BUG / 工程
