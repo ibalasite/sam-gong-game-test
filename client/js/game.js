@@ -293,7 +293,28 @@ async function joinGame(forceRoomId) {
 
     // Schema onStateChange kept only for connection awareness (schema sync unreliable)
     _room.onStateChange(() => { /* state comes via room_state message */ });
-    _room.onLeave(code => { setConn(false); addLog('已離線 ('+code+')','sys'); if(code!==1000) toast('已斷線','red'); });
+    // BUG-20260422-015：被踢出 / 斷線 → 回到登入畫面，而不是卡在遊戲畫面
+    _room.onLeave(code => {
+      setConn(false);
+      addLog('已離線 ('+code+')','sys');
+      const isKicked = (code === 4050);
+      const msg = isKicked ? '60 秒未按加入遊戲，已被踢出房間'
+                : (code !== 1000 ? '已斷線或房間已關閉' : '已離開');
+      toast('⏰ ' + msg, isKicked || code !== 1000 ? 'red' : 'green', 3500);
+      _room = null;
+      // 1 秒後回到登入畫面（讓 toast 有時間看到）
+      setTimeout(() => {
+        history.replaceState(null, '', location.pathname);
+        const roomInp = $('room-join-id');
+        if (roomInp) roomInp.value = '';
+        const sb = $('share-box'); if (sb) sb.style.display = 'none';
+        $('game').style.display = 'none';
+        $('login').style.display = 'flex';
+        const jb = $('joinbtn'); if (jb) { jb.disabled = false; jb.textContent = '🎴 建立／加入遊戲'; }
+        const em = $('errmsg');
+        if (em) { em.style.color = isKicked ? '#ef9a9a' : '#80cbc4'; em.textContent = msg; }
+      }, 1000);
+    });
     _room.onError((c,m) => { toast('WS錯誤 '+c,'red'); addLog('WS錯誤: '+m,'sys'); });
 
     // Show game screen
@@ -394,6 +415,16 @@ function renderState(s) {
   }
   if (Array.isArray(s.players) && s.players.some(p => p.is_spectator)) {
     startCountdownTicker();
+  }
+
+  // BUG-20260422-015：若我的 spectator 倒數已過期，Server 可能因 pod 重啟丟失 kick timer，
+  // Client 主動離開回到登入畫面，避免永遠卡在觀察者狀態
+  if (me?.is_spectator && me.spectator_deadline_timestamp > 0
+      && me.spectator_deadline_timestamp + 2000 < Date.now()   // 2 秒寬限避免 clock drift
+      && _room) {
+    const r = _room; _room = null;
+    try { r.leave(true); } catch (_) { /* ignore */ }
+    // onLeave 會接手切回登入畫面
   }
 
   // 第一次進入 settled：金幣飛入 + 收銀機聲
