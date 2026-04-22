@@ -73,5 +73,10 @@
     "url": "lang.html",
     "title": "語言選型",
     "excerpt": "技術選型文件（Language &amp; Framework Selection）\n&lt;!-- SDLC Requirements Engineering — STEP 02 Output --&gt;\n專案: 三公遊戲（Sam Gong 3-Card Poker）即時多人線上平台\n版本: v"
+  },
+  "bdd.html": {
+    "url": "bdd.html",
+    "title": "BDD Scenarios",
+    "excerpt": "Gherkin Feature Files"
   }
 }

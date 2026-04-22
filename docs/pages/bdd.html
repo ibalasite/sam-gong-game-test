@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BDD Scenarios — sam-gong-game</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+</head>
+<body>
+  <header class="top-nav">
+    <a href="index.html" class="nav-brand">sam-gong-game</a>
+    <div class="nav-controls">
+      <div class="search-wrap">
+        <input class="search-input" type="search" placeholder="搜尋文件...">
+        <div class="search-results"></div>
+      </div>
+      <a class="nav-gh-link" href="https://github.com/ibalasite/sam-gong-game-test" target="_blank" rel="noopener">⌥ GitHub</a>
+      <button class="sidebar-toggle" id="sidebarToggle" title="收合/展開側欄">☰</button>
+    </div>
+  </header>
+  <div class="doc-page-banner">
+    <p class="banner-breadcrumb"><a href="index.html">sam-gong-game</a> › BDD Scenarios</p>
+    <h1 class="banner-title">BDD Scenarios</h1>
+  </div>
+  <div class="page-wrapper">
+    <aside class="sidebar" aria-label="文件導覽">
+      <div class="sidebar__section">
+        <div class="sidebar__label">文件</div>
+        <a class="sidebar__link" href="index.html">🏠 首頁</a>
+<a class="sidebar__link" href="idea.html">💡 構想文件 (IDEA)</a>
+<a class="sidebar__link" href="brd.html">📋 商業需求文件 (BRD)</a>
+<a class="sidebar__link" href="prd.html">📝 產品需求文件 (PRD)</a>
+<a class="sidebar__link" href="pdd.html">🎨 產品設計文件 (PDD)</a>
+<a class="sidebar__link" href="edd.html">🏗️ 工程設計文件 (EDD)</a>
+<a class="sidebar__link" href="arch.html">🧩 架構設計</a>
+<a class="sidebar__link" href="api.html">🔌 API 文件</a>
+<a class="sidebar__link" href="schema.html">🗄️ Schema 文件</a>
+<a class="sidebar__link" href="test-plan.html">✅ 測試計畫</a>
+<a class="sidebar__link" href="diagrams.html">📊 系統圖表</a>
+<a class="sidebar__link" href="alignment-report.html">📄 Alignment Report</a>
+<a class="sidebar__link" href="smoke-test-report.html">📄 Smoke Test Report</a>
+<a class="sidebar__link" href="local-deploy.html">📄 Local Deploy</a>
+<a class="sidebar__link" href="lang.html">🔧 語言選型</a>
+<a class="sidebar__link active" href="bdd.html">🧪 BDD Scenarios</a>
+      </div>
+    </aside>
+    <div class="sidebar-resizer" id="sidebarResizer"></div>
+    <main class="doc-content"><h2>client\game_table.feature</h2>
+<pre><code class="language-gherkin"># features/client/game_table.feature
+# PDD SCR-007 遊戲桌面 BDD Scenarios
+
+Feature: 遊戲桌面 (SCR-007)
+  身為遊戲中的玩家
+  我想即時看到桌面狀態並進行押注操作
+  以便完成每一局遊戲
+
+  Background:
+    Given 玩家已加入遊戲房間
+    And 伺服器廣播 RoomState 至 Client
+
+  Scenario: 顯示獎池金額（來自 Server）
+    When 伺服器廣播 pot=5000
+    Then 桌面獎池顯示 &quot;獎池：🪙 5,000&quot;
+    And Client 不自行計算任何籌碼值
+
+  Scenario: 莊家押注階段顯示押注面板
+    When 伺服器廣播 phase=&quot;banker-bet&quot;
+    And 輪到我（莊家）
+    Then 應顯示快速押注按鈕組
+    And 自動押注 checkbox 預設為勾選
+    And 進度條開始 3 秒倒數
+
+  Scenario: 自動押注倒數後執行上一把金額
+    Given 莊家上一把押注金額為 1000
+    And 自動押注已開啟
+    When 3 秒倒數結束
+    Then 自動發送 banker_bet 1000 至伺服器
+    And 選中按鈕顏色應為主色（金色）
+
+  Scenario: 閒家跟注階段
+    When 伺服器廣播 phase=&quot;player-bet&quot;
+    And 輪到我（閒家）
+    Then 應顯示「跟注」和「棄牌」按鈕
+    And 自動跟注倒數 3 秒後自動執行
+
+  Scenario: 開牌動畫（顯示 Server 廣播的牌型）
+    When 伺服器廣播 showdown_reveal 含各玩家手牌
+    Then 依座位順序逐一翻牌（動畫 250ms 間隔）
+    And 牌型標籤顯示在頭像上方（大字閃亮）
+    And Client 不計算牌型，直接顯示 Server hand_type
+
+  Scenario: 三公手牌特殊效果
+    When 伺服器廣播某玩家 hand_type=&quot;sam_gong&quot;
+    Then 顯示 &quot;🎴 三公&quot; 閃亮標籤
+    And 播放三公慶祝音效
+    And 顯示三公光暈特效
+
+  Scenario: 開牌後結算（顯示 Server net_chips）
+    When 伺服器廣播 settlement 資料（含 net_chips）
+    Then 顯示結算疊加層（SCR-009）
+    And 顯示我的盈虧（來自 net_chips，Client 不計算）
+    And 5 秒後自動關閉結算疊加層
+
+  Scenario: 斷線重連
+    When 網路中斷
+    Then 顯示「重新連線中...」提示
+    And 自動嘗試最多 5 次重連（間隔遞增）
+    And 重連成功後恢復桌面狀態
+
+  Scenario: Client 禁止包含遊戲邏輯計算
+    Then Client TypeScript 不應包含 &quot;compareCards&quot; 關鍵字
+    And Client TypeScript 不應包含 &quot;calculatePoints&quot; 關鍵字
+    And Client TypeScript 不應包含 &quot;Math.random&quot; 關鍵字
+</code></pre>
+<h2>client\lobby.feature</h2>
+<pre><code class="language-gherkin"># features/client/lobby.feature
+# PDD SCR-004 主大廳 BDD Scenarios
+
+Feature: 主大廳 (SCR-004)
+  身為已登入玩家
+  我想在主大廳看到我的籌碼餘額並選擇遊戲模式
+  以便開始遊戲或查看排行榜
+
+  Background:
+    Given 玩家已成功登入
+    And 玩家當前不在任何遊戲房間中
+
+  Scenario: 顯示玩家籌碼餘額
+    When 進入主大廳畫面
+    Then 應顯示玩家暱稱
+    And 應顯示來自伺服器的籌碼餘額
+    And 籌碼餘額格式為 &quot;🪙 {數字}&quot; 千分位格式
+
+  Scenario: 快速配對按鈕可用
+    Given 玩家籌碼餘額 &gt;= 最低廳別入場費
+    When 進入主大廳畫面
+    Then 快速配對按鈕應為可點擊狀態
+
+  Scenario: 已在房間中時禁止二次配對（Single Room Constraint）
+    Given 玩家已在遊戲房間中（room_active=true）
+    When 進入主大廳畫面
+    Then 快速配對按鈕應為 disabled 狀態
+
+  Scenario: 進入新手教學
+    When 點擊「新手教學」按鈕
+    Then 應導覽至教學畫面（SCR-008）
+
+  Scenario: 進入排行榜
+    When 點擊「排行榜」圖示
+    Then 應導覽至排行榜畫面（SCR-010）
+
+  Scenario: 進入個人帳號頁
+    When 點擊「帳號」圖示
+    Then 應導覽至個人資料畫面（SCR-013）
+</code></pre>
+<h2>client\matchmaking.feature</h2>
+<pre><code class="language-gherkin"># features/client/matchmaking.feature
+# PDD SCR-005, SCR-006 配對流程 BDD Scenarios
+
+Feature: 配對流程 (SCR-005, SCR-006)
+  身為想開始遊戲的玩家
+  我想選擇廳別並進入配對
+  以便找到對手開始遊戲
+
+  Scenario: 選擇廳別後進入配對等待
+    Given 玩家在廳別選擇畫面（SCR-005）
+    When 選擇「初級廳」並確認
+    Then 進入配對等待畫面（SCR-006）
+    And 顯示已等待秒數
+
+  Scenario: 90 秒配對超時返回大廳
+    Given 玩家在配對等待畫面
+    When 等待超過 90 秒未配對成功
+    Then 顯示「配對超時」提示
+    And 2 秒後自動返回主大廳（SCR-004）
+
+  Scenario: 玩家主動取消配對
+    Given 玩家在配對等待畫面
+    When 點擊「取消配對」
+    Then 發送 leave 指令至 Colyseus
+    And 返回主大廳（SCR-004）
+
+  Scenario: 配對成功進入遊戲桌
+    Given 玩家在配對等待畫面
+    When Colyseus 回傳 CONNECTED 事件
+    Then 自動導覽至遊戲桌面（SCR-007）
+</code></pre>
+<h2>client\settings_audio.feature</h2>
+<pre><code class="language-gherkin"># features/client/settings_audio.feature
+# PDD SCR-015 設定畫面 + §6.8 音效規格 BDD Scenarios
+
+Feature: 設定與音效控制 (SCR-015)
+  身為玩家
+  我想控制音效和背景音樂
+  以便根據偏好調整遊戲體驗
+
+  Scenario: 關閉音效
+    Given 音效（SFX）預設為開啟
+    When 在設定畫面切換「音效」為關閉
+    Then 後續操作不播放任何 SFX
+    And 設定儲存至本機 localStorage
+
+  Scenario: 關閉背景音樂
+    Given 背景音樂（BGM）預設為開啟
+    When 在設定畫面切換「背景音樂」為關閉
+    Then BGM 立即停止播放
+    And 設定儲存至本機
+
+  Scenario: 調整音量後立即生效
+    When 在設定畫面拉動「BGM 音量」滑桿至 50%
+    Then BGM AudioSource volume 設定為 0.5
+
+  Scenario: 重啟後恢復音效設定
+    Given 玩家已關閉音效並離開 App
+    When 重新啟動 App
+    Then 音效設定從 localStorage 恢復為關閉狀態
+</code></pre></main>
+  </div>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({startOnLoad:true,theme:'default',
+      flowchart:{curve:'basis',nodeSpacing:60,rankSpacing:80},
+      er:{layoutDirection:'TD',minEntityWidth:100,fontSize:12},
+      sequence:{actorMargin:60,messageMargin:30}});
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-sql.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
