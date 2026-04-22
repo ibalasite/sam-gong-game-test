@@ -1159,13 +1159,14 @@ Web 首次載入：
 ## 變更追蹤
 
 ### BUG-20260422-002：獎池（current_pot）語意錯誤 — 莊家下注不應入池
-- **狀態**：⏳ PENDING
+- **狀態**：✅ DONE
 - **分類**：BUG / 工程
 - **日期**：2026-04-22
 - **描述**：三公規則中，「獎池」只應包含**閒家跟注**的錢；莊家下注屬莊家 escrow，不屬於桌面獎池。結算時：閒家贏 → 自己的 called_bet 從獎池退回 + 莊家另從口袋付 N× 賠率；閒家輸 → called_bet 從獎池流向莊家；平手 → called_bet 從獎池退回。當前 `current_pot` 錯把莊家下注加入，造成 UI 誤導。
 - **影響範圍**：§5.3 結算 UI 獎池顯示；EDD §3.2 `current_pot` 欄位語意（spec 已正確，實作不符）；結算動畫流向
-- **修正/實作內容**：（待完成後填入）
-- **commit**：—
+- **修正/實作內容**：`src/rooms/SamGongRoom.ts` 的 `handleAutoMinBet` 與 `handleBankerBet` 不再將莊家下注加入 `current_pot`（改純 escrow 扣款）；EDD §3.2 `current_pot` 註解改為「閒家跟注加總」；`client/js/game.js` 移除 banker→pot 金幣動畫（改播 coin drop 音效），`triggerSettleAnimation` 重寫為 5 階段依結果分流：輸家→莊家、平手/贏家→退回 called_bet、莊家→贏家付 N× 賠率、破產情境破碎動畫。256 server 測試 + 32 client 測試全通過。
+- **commit**：`d2b9465` docs + `e69ecc3` server+client
+- **完成日期**：2026-04-22
 
 ### BUG-20260422-001：房間開局後仍應允許加入 + 押注/跟注 checkbox 預設不勾選
 - **狀態**：✅ DONE
