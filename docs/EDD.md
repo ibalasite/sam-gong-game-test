@@ -26,6 +26,7 @@
 | 版本 | 日期 | 作者 | 變更摘要 |
 |------|------|------|---------|
 | v1.0-draft | 2026-04-22 | /devsop-autodev STEP-07 | 初稿；依 PRD v0.14 + BRD v0.12 + PDD v0.2 生成；涵蓋系統架構、Colyseus Room 設計、完整 TypeScript Schema、狀態機、結算引擎、REST API、PostgreSQL DDL、Redis 使用、安全架構、k8s 部署、可觀測性、可行性評估 |
+| v1.1-draft | 2026-04-22 | STEP-08 Review Round 5 | 修復 18 個 findings：F1 HPA scaleDown + preStop；F2 HPA CPU-only觸發/CCU告警對齊；F3 Colyseus health probe；F4 rescue-chip條件統一/typo修正；F5 CSRF說明；F6 CORS策略；F7 SQL Injection防護+Semgrep；F8 WS Close Code表；F9 統一ErrorResponse Schema；F10 Error Code枚舉；F11 環境變數清單；F12 chip_transactions分區；F13 Replica pgBouncer；F14 SLO定義；F15 覆蓋率+Auto-rollback；F16 Alertmanager規則；F17 Colyseus Monitor安全；F18 API版本策略 |
 
 ---
 
@@ -806,6 +807,18 @@ export class BankerRotation {
 | `matchmaking_expanded` | `{ expanded_tiers: string[] }` | 配對擴展至相鄰廳別（30s 後） |
 | `send_message_rejected` | `{ reason: 'content_filter' \| 'rate_limit' }` | 聊天訊息被拒絕 |
 
+#### WebSocket Close Code 定義表
+
+| Code | 含義 | Client 處理 |
+|------|------|-------------|
+| 4000 | 被系統踢出（禁止重連） | 顯示封號訊息，清除 token |
+| 4001 | Token 失效或帳號封禁 | 清除 token，跳轉登入頁 |
+| 4002 | 伺服器維護 | 顯示維護中訊息，5 分鐘後重試 |
+| 4003 | 未成年每日遊戲時間上限 | 顯示下線提示，次日台灣午夜後可重連 |
+| 4004 | 重連逾時（reconnect window 過期）| 清除 reconnect_info，返回大廳 |
+| 4005 | 重複登入（同帳號其他裝置已登入）| 顯示「其他裝置已登入」訊息 |
+| 1001 | 伺服器正常關閉（Going Away） | 嘗試重連，最多 3 次 |
+
 #### 重連流程 (Reconnect Flow)
 
 **Client 端實作（Cocos Creator）：**
@@ -837,6 +850,10 @@ room.onLeave(async (code) => {
 
 ## 4. REST API Design
 
+### 4.0 API Versioning Policy
+
+API 版本策略：使用 URL Path 版本控制（`/api/v1/`）。v2 引入條件：當有 Breaking Changes（欄位移除/重命名、語義變更）時建立 v2。v1 Deprecation 通知期限：至少 6 個月，在 Response Header 加入 `Deprecation: date` 和 `Sunset: date`。OpenAPI/Swagger 規格由 `express-openapi-validator` 自動生成並發佈至 `/api/docs`。
+
 ### 4.1 API Endpoints Table
 
 | 方法 | 路徑 | 說明 | 認證 | Rate Limit | 回應碼 |
@@ -852,7 +869,7 @@ room.onLeave(async (code) => {
 | DELETE | `/api/v1/player/me` | 申請帳號刪除（7 工作日）| JWT | 60/min/user | 202/401 |
 | GET | `/api/v1/leaderboard` | 排行榜（weekly / chip type）| JWT（可選）| 60/min/user | 200/400 |
 | POST | `/api/v1/player/daily-chip` | 每日籌碼領取（冪等）| JWT | 5/min/user | 200/400/429 |
-| POST | `/api/v1/player/rescue-chip` | 申請救援籌碼（每日1次，帳戶≥0筒碼時拒絕）| Bearer JWT | ≤1/day/user | 200/400/401/403/429 |
+| POST | `/api/v1/player/rescue-chip` | 申請救援籌碼（chip_balance < 500 時可申請，每日1次，今日已領取返回 403）| Bearer JWT | ≤1/day/user | 200/400/401/403/429 |
 | GET | `/api/v1/tasks` | 取得每日任務列表 | JWT | 60/min/user | 200/401 |
 | POST | `/api/v1/tasks/:id/complete` | 完成任務 + 發放獎勵 | JWT | 5/min/user | 200/400/401/404/429 |
 | POST | `/api/v1/kyc/submit` | KYC 資料提交 | JWT | 60/min/user | 200/400/401 |
@@ -868,7 +885,49 @@ room.onLeave(async (code) => {
 | GET | `/api/v1/health/ready` | 就緒探針（DB + Redis 連線檢查）| None | N/A | 200/503 |
 | GET | `/api/v1/config` | 用戶端設定（伺服器域名、廳別設定等）| 無 | 300/min/IP | 200 |
 
-### 4.2 Authentication Flow
+### 4.2 Unified Error Response Schema
+
+```typescript
+// REST API 統一錯誤回應格式
+interface ErrorResponse {
+  error: string;        // Error code（機器可讀，如 'insufficient_chips'）
+  message: string;      // 人類可讀說明（英文，用於 debug）
+  detail?: object;      // 額外上下文資訊（可選）
+  request_id?: string;  // 分散式追蹤 ID（X-Request-ID header）
+}
+
+// WebSocket 錯誤訊息格式
+interface WsErrorMessage {
+  code: string;    // Error code（同 ErrorResponse.error）
+  message: string;
+}
+```
+
+Client 端根據 `code`（即 i18n key `error.{code}`）本地化顯示。
+
+### 4.3 Error Codes
+
+完整 Error Code 枚舉清單（每個 code 對應 i18n key 格式：`error.{code}`，如 `error.insufficient_chips`）：
+
+```
+# 認證/授權
+token_expired | token_invalid | token_revoked | account_banned | account_not_found
+
+# 遊戲邏輯
+invalid_phase | insufficient_chips | invalid_bet_amount | bet_out_of_range
+already_called | already_folded | banker_insolvent | room_full | room_not_found
+
+# 速率限制
+rate_limit_exceeded | daily_task_limit | rescue_chip_claimed
+
+# KYC/合規
+age_verification_required | underage_session_expired | otp_invalid | otp_expired
+
+# 系統
+server_maintenance | internal_error | request_timeout
+```
+
+### 4.5 Authentication Flow
 
 **JWT RS256 完整流程：**
 
@@ -930,7 +989,7 @@ Token 驗證時：
   - 實際上 60s 的黑名單覆蓋了最敏感的即時封號窗口
 ```
 
-### 4.3 Rate Limiting Implementation
+### 4.6 Rate Limiting Implementation
 
 **NFR-19 四層速率限制（Redis Token Bucket）：**
 
@@ -1199,8 +1258,9 @@ CREATE TYPE tx_type_enum AS ENUM (
     'task_reward', 'ad_reward', 'refund', 'tutorial', 'admin_adjustment', 'rake'
 );
 
+-- 按月分區（pg_partman 管理）
 CREATE TABLE chip_transactions (
-    id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                UUID NOT NULL DEFAULT uuid_generate_v4(),
     user_id           UUID REFERENCES users(id) ON DELETE SET NULL,
                       -- 帳號刪除後 user_id 設 NULL（匿名化，保留 7 年記錄）；不加 NOT NULL 以允許 ON DELETE SET NULL
     game_session_id   UUID REFERENCES game_sessions(id) ON DELETE SET NULL,
@@ -1213,8 +1273,15 @@ CREATE TABLE chip_transactions (
     -- rake 紀錄使用系統帳戶：SYSTEM_ACCOUNT_UUID = '00000000-0000-0000-0000-000000000001'
     -- balance_before/balance_after 追蹤累計 rake 餘額（系統帳戶）
     -- 若不維護系統帳戶餘額，允許系統帳戶 balance_before=0, balance_after=0
-    CONSTRAINT balance_consistency CHECK (user_id IS NULL OR balance_before + amount = balance_after)
-);
+    CONSTRAINT balance_consistency CHECK (user_id IS NULL OR balance_before + amount = balance_after),
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
+
+-- 範例子表（由 pg_partman 自動建立）
+-- chip_transactions_2026_01, chip_transactions_2026_02, ...
+
+-- 補充說明：使用 pg_partman 設定自動建立未來分區，自動 DROP 7 年前的分區
+COMMENT ON TABLE chip_transactions IS 'Partitioned by month (created_at). Managed by pg_partman. Retention: 7 years.';
 
 CREATE INDEX idx_tx_user_id ON chip_transactions(user_id, created_at DESC);
 CREATE INDEX idx_tx_game_session ON chip_transactions(game_session_id);
@@ -1421,7 +1488,9 @@ CREATE INDEX idx_player_reports_status ON player_reports(status) WHERE status = 
 |---------|---------|---------|
 | **S - Spoofing（身份偽造）** | 偽造其他玩家 JWT Token | RS256/ES256 非對稱簽名；私鑰由 AWS KMS 管理；Token 驗證在 Auth Service 執行 |
 | **S - Spoofing** | 偽造 OTP 繞過年齡驗證 | OTP 3 次錯誤失效；每日 5 次上限；同 IP 10 分鐘 > 3 支手機號觸發 Rate Limit |
-| **T - Tampering（資料竄改）** | 篡改 WebSocket 訊息（如修改下注金額）| Server-Authoritative：所有金額由 Server 驗證（phase、餘額、tier 範圍）；Client 數值僅供顯示 |
+| **S - Spoofing** | CSRF 跨站請求偽造 | 所有 REST API 端點使用 `Authorization: Bearer JWT`（HTTP Header），不依賴 Cookie 認證，瀏覽器端 CSRF 攻擊無法利用此認證機制（攻擊者無法讀取 Authorization header）。若未來引入 Session Cookie 認證，必須加入 `SameSite=Strict` Cookie 及 CSRF Token 機制。 |
+| **T - Tampering（資料竄改）** | SQL Injection 攻擊 | 所有 PostgreSQL 查詢使用 node-postgres parameterized queries（`$1`, `$2` 佔位符），嚴禁字串拼接 SQL。CI pipeline Semgrep SAST 規則包含 SQL injection 偵測規則（`rules/sql-injection.yaml`）。 |
+| **T - Tampering** | 篡改 WebSocket 訊息（如修改下注金額）| Server-Authoritative：所有金額由 Server 驗證（phase、餘額、tier 範圍）；Client 數值僅供顯示 |
 | **T - Tampering** | Client 注入遊戲邏輯（compareCards, shuffle 等）| TypeScript project references CI 邊界強制；Client bundle 關鍵字掃描（REQ-001 AC-3/AC-7）；CI 違反阻擋 build |
 | **T - Tampering** | 中間人攻擊（修改傳輸資料）| 強制 TLS 1.2+（NFR-04）；CloudFlare TLS Termination；WebSocket over wss:// |
 | **R - Repudiation（否認）** | 玩家否認牌局結算結果 | 每局 settlement_payload 完整快照存 PostgreSQL；chip_transactions 不可變記錄；DB 稽核日誌 |
@@ -1432,7 +1501,19 @@ CREATE INDEX idx_player_reports_status ON player_reports(status) WHERE status = 
 | **E - Elevation of Privilege（權限提升）** | 普通玩家呼叫 Admin API | Admin API 僅限內網 VPN；獨立 Admin JWT（不同私鑰）；所有 Admin 操作記入稽核日誌 |
 | **E - Elevation of Privilege** | 未成年繞過防沉迷 | Server 端計時（不信任 Client）；suspicious_underage_flag 異常行為標記（REQ-015 設計說明）；法律意見書確認後 KYC 升級 |
 
-### 6.2 Anti-Cheat Design
+### 6.2 CORS Policy
+
+```
+CORS 設定（Production）：
+- Access-Control-Allow-Origin: https://samgong.io, https://app.samgong.io
+- Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+- Access-Control-Allow-Headers: Authorization, Content-Type, X-Request-ID
+- Access-Control-Max-Age: 86400（preflight 快取 24h）
+- Access-Control-Allow-Credentials: false（Bearer Token 不需要）
+- 禁止：Access-Control-Allow-Origin: *（生產環境）
+```
+
+### 6.3 Anti-Cheat Design
 
 **多層防作弊架構：**
 
@@ -1469,7 +1550,7 @@ CREATE INDEX idx_player_reports_status ON player_reports(status) WHERE status = 
    - 模擬 6 人房間，驗證每位玩家僅收到自身手牌
    - Pass 條件：6 位玩家封包抽樣全通過，0 次手牌洩漏
 
-### 6.3 Taiwan Compliance
+### 6.4 Taiwan Compliance
 
 **台灣合規架構：**
 
@@ -1520,10 +1601,17 @@ Read（SELECT）：Read Replica 節點
   - 玩家資料讀取（GET /player/me）
   - 籌碼交易記錄查詢
 
-連線池：pgBouncer（Transaction Mode）
+連線池（Primary）：pgBouncer（Transaction Mode）
   max_client_conn: 200
   default_pool_size: 50（500 CCU 壓測環境）
   Circuit Breaker：連線池耗盡後 30s Circuit Breaker（返回 HTTP 503 + Retry-After:30）
+
+連線池（Read Replica）：獨立 pgBouncer 實例（replica-pgbouncer:5432）
+  pool_mode: transaction
+  pool_size: 30
+  max_client_conn: 100
+  應用程式透過 DATABASE_REPLICA_URL 環境變數連接 Replica
+  排行榜查詢、玩家資料讀取走 Replica 分流
 ```
 
 ### 7.2 Performance Targets
@@ -1572,14 +1660,45 @@ services:
     type: Deployment
     replicas: 2  # 初始；HPA 自動擴展
     image: sam-gong/colyseus-server:${VERSION}
-    ports: [2567]  # Colyseus WebSocket
+    ports:
+      - containerPort: 2567  # WS
+      - containerPort: 3001  # Health HTTP
     resources:
       requests: { cpu: "500m", memory: "512Mi" }
       limits:   { cpu: "2000m", memory: "2Gi" }
+    lifecycle:
+      preStop:
+        exec:
+          command: ["/bin/sh", "-c", "sleep 30"]  # 優雅排空連線 30 秒
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 3001
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /ready
+        port: 3001
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      successThreshold: 1
+      failureThreshold: 3
+    # 說明：colyseus-server 需在 port 3001 啟動獨立 HTTP health server（Express）
+    # /health 回應 200；/ready 在 Room state 初始化後才回應 200
+    # CCU 監控（> 450）為輔助告警（PagerDuty Warning），非自動擴容觸發
     hpa:
       minReplicas: 2
       maxReplicas: 10
-      metric: cpu > 70%（持續 5min）
+      metric: cpu > 70%（持續 5min）  # HPA 僅使用 CPU metric；CCU 監控為輔助告警，非自動擴容觸發
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+          - type: Percent
+            value: 25
+            periodSeconds: 60
 
   rest-api:
     type: Deployment
@@ -1622,6 +1741,46 @@ services:
       nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"  # WebSocket
       nginx.ingress.kubernetes.io/affinity: "cookie"           # Sticky Session
 ```
+
+### 8.3 Environment Variables
+
+**ConfigMap（非敏感）：**
+
+| 變數名稱 | 預設值 | 說明 |
+|---------|--------|------|
+| `NODE_ENV` | `production` | 環境識別 |
+| `PORT` | `3000` | REST API 監聽埠 |
+| `COLYSEUS_PORT` | `2567` | Colyseus WebSocket 監聽埠 |
+| `HEALTH_PORT` | `3001` | Health HTTP server 監聽埠 |
+| `API_VERSION` | `v1` | API 版本前綴 |
+| `SYSTEM_ACCOUNT_UUID` | `00000000-0000-0000-0000-000000000001` | 系統帳戶 UUID（rake 記錄用） |
+| `RESCUE_CHIP_THRESHOLD` | `500` | 救援籌碼申請門檻（chip_balance < 此值可申請） |
+| `RESCUE_CHIP_AMOUNT` | `1000` | 每次救援籌碼發放額度 |
+
+**Secret（敏感，由 k8s Secret 管理）：**
+
+| 變數名稱 | 說明 |
+|---------|------|
+| `DATABASE_URL` | PostgreSQL Primary 連線字串（含帳密） |
+| `DATABASE_REPLICA_URL` | PostgreSQL Read Replica 連線字串（含帳密） |
+| `REDIS_URL` | Redis Sentinel 連線字串 |
+| `REDIS_PASSWORD` | Redis 認證密碼 |
+| `JWT_PRIVATE_KEY` | RS256 私鑰（PEM 格式） |
+| `JWT_PUBLIC_KEY` | RS256 公鑰（PEM 格式） |
+| `OTP_SMS_API_URL` | OTP 簡訊服務 API URL |
+| `OTP_SMS_API_KEY` | OTP 簡訊服務 API Key |
+| `GOOGLE_CLIENT_ID` | Google OAuth Client ID |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret |
+| `FACEBOOK_APP_ID` | Facebook OAuth App ID |
+| `FACEBOOK_APP_SECRET` | Facebook OAuth App Secret |
+| `SENTRY_DSN` | Sentry 錯誤追蹤 DSN |
+
+**Colyseus Monitor Dashboard 安全性：**
+
+Colyseus Monitor Dashboard（expose 於 `/colyseus` 路徑或獨立 port）在 Production 環境必須停用（`NODE_ENV=production` 時不掛載 monitor middleware）或限制存取：
+- 僅在 Staging 環境啟用
+- Production 若需啟用，使用 k8s NetworkPolicy 限制只有 VPN/Bastion IP 可存取，且加入 BasicAuth
+- k8s Ingress 排除 `/colyseus*` 路徑（僅允許內部 InternalLoadBalancer 存取）
 
 **Secrets 管理（AWS KMS / k8s Secret）：**
 
@@ -1681,7 +1840,7 @@ jobs:
       - TypeScript project references 邊界驗證
       - Unit Tests（HandEvaluator ≥ 200 vectors）
       - Integration Tests（Settlement 並發）
-      - Semgrep SAST
+      - Semgrep SAST（含 SQL injection 偵測規則 rules/sql-injection.yaml）
 
   build:
     steps:
@@ -1706,6 +1865,23 @@ jobs:
       - Monitor 5min
       - Auto-rollback on failure
 ```
+
+**測試覆蓋率要求：**
+
+```bash
+jest --coverage --coverageThreshold='{"global":{"lines":80,"branches":80,"functions":80}}'
+```
+
+覆蓋率不足（lines/branches/functions 任一 < 80%）阻擋 PR 合併。
+
+**Auto-rollback 觸發條件（Blue-Green 切換後 5 分鐘觀察窗）：**
+
+滿足以下任一條件時自動回滾：
+- `api_error_rate_5xx > 1%`（持續 2 分鐘）
+- `websocket_latency_p95 > 200ms`（持續 2 分鐘）
+- health check 失敗率 > 30%
+
+回滾命令：`kubectl rollout undo deployment/sam-gong-api`
 
 ---
 
@@ -1738,17 +1914,48 @@ jobs:
 
 | 指標類別 | 指標名稱 | 告警閾值 | 動作 |
 |---------|---------|---------|------|
-| CCU | `colyseus_room_clients_total` | > 450（單節點）| 觸發 HPA |
+| CCU | `colyseus_room_clients_total` | > 450（單節點）| PagerDuty Warning，人工評估是否手動擴容（HPA 僅由 CPU > 70% 觸發，CCU 監控為輔助告警）|
 | 延遲 | `websocket_latency_p95_ms` | > 100ms | PagerDuty Warning |
 | 延遲 | `websocket_latency_p99_ms` | > 500ms | PagerDuty Critical |
 | 錯誤率 | `api_error_rate_5xx` | > 1% | PagerDuty |
-| 房間數 | `colyseus_rooms_total` | > 350（單節點）| HPA 觸發 |
+| 房間數 | `colyseus_rooms_total` | > 350（單節點）| PagerDuty Warning |
 | 籌碼異常 | `chip_conservation_violation` | > 0（任何違反）| PagerDuty Critical（SRE ≤ 15min）|
 | 負值餘額 | `chip_balance_negative_count` | > 0 | PagerDuty Critical |
 | 異常抽水 | `rake_exceeds_theoretical_max` | > 0 | PagerDuty Critical |
 | DB Lag | `postgres_replication_lag_bytes` | > 10MB | PagerDuty Warning |
 | Redis 記憶體 | `redis_memory_usage_percent` | > 80% | PagerDuty Warning |
 | SLA | `service_availability_percent` | < 99.9% | PagerDuty Critical |
+
+### 9.2 Alertmanager Rules
+
+Prometheus Alertmanager 告警規則定義於 `k8s/monitoring/alerts.yaml`，關鍵規則：
+
+| 規則名稱 | 表達式 | 持續時間 | Severity | 路由 |
+|---------|--------|---------|---------|------|
+| `ChipConservationViolation` | `chip_conservation_violation > 0` | 0m（立即）| critical | PagerDuty（立即）|
+| `HighErrorRate` | `api_error_rate_5xx > 0.01` | 2m | warning | Slack #alerts-sam-gong（5 分鐘匯聚）|
+| `ColyseusLatencyHigh` | `ws_latency_p95 > 100` | 3m | warning | Slack #alerts-sam-gong（5 分鐘匯聚）|
+| `DatabaseFailover` | `pg_primary_unavailable == 1` | 0m（立即）| critical | PagerDuty（立即）|
+| `AntiAddictionMiss` | `anti_addiction_session_write_failure > 0` | 0m（立即）| critical | PagerDuty（立即）|
+
+告警路由：`critical` → PagerDuty（立即）；`warning` → Slack #alerts-sam-gong（5 分鐘匯聚）。
+
+### 9.3 SLO Definition
+
+**SLI 定義：**
+- 可用性 SLI = 成功回應請求數 / 總請求數（HTTP 5xx 視為失敗）
+- 延遲 SLI = P95 WS 訊息延遲 < 100ms 的比例
+
+**SLO：**
+- 可用性：99.5%/月（Error Budget = 每月 3.65 小時）
+- 延遲：95% WebSocket 訊息 P95 < 100ms
+
+**Error Budget Policy：**
+- 消耗 50%：凍結非緊急上線，集中修復
+- 消耗 100%：立即凍結所有發布直到下月
+
+**On-call Escalation：**
+- L1（SRE On-call）→ 5 分鐘無回應 → L2（Tech Lead）→ 10 分鐘無回應 → L3（CTO）
 
 **可觀測性工具鏈：**
 
