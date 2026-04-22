@@ -455,6 +455,32 @@ const phaseText = i18n.t(phaseKey); // e.g., '莊家下注中'
 
 ---
 
+### CMP-012：Betting Panel（押注 / 跟注面板）
+
+| 屬性 | 規格 |
+|------|------|
+| **元件 ID** | CMP-012 |
+| **元件名稱** | BettingPanelComponent（整合 CMP-004 + CMP-005 + 自動押注 Toggle + 3s 倒數進度條）|
+| **顯示條件** | `phase === 'banker-bet'`（莊家押注模式）或 `phase === 'player-bet'` 且本地玩家為當前輪次（跟注模式）|
+
+**Auto-Act Toggle（自動押注 / 自動跟注）：**
+- 元件型別：`cc.Toggle`（Cocos Creator checkbox）
+- **預設值：`isChecked = false`（未勾選）** — 無論玩家如何加入房間（開局前加入 / 中途加入 / 重連 / 切換廳別），Toggle 於 `onLoad` / 進入 `showBankerMode` / 進入 `showPlayerMode` 時必須主動設為 `false`，不得依賴 Cocos Editor Prefab 預設值
+- **行為：** 未勾選 → 玩家必須手動點擊「確認下注」或「跟注」；勾選 → 3 秒倒數後自動送出 `banker_bet` 或 `call`
+- **每次新 phase 進入時強制重置**：避免上一局勾選狀態延續至下一局（玩家需每局重新決定是否啟用自動）
+- **i18n：** `game.autoBet`（莊家模式，zh-TW: 「自動押注」）、`game.autoCall`（閒家模式，zh-TW: 「自動跟注」）
+- **可存取性：** Toggle 加上 `aria-label`（i18n: `a11y.auto_bet_toggle` / `a11y.auto_call_toggle`），螢幕閱讀器須朗讀當前狀態（checked / unchecked）
+
+**狀態：**
+
+| 狀態 | 視覺 |
+|------|------|
+| Default | Toggle 未勾選；進度條隱藏 |
+| Checked（用戶主動勾選）| Toggle 勾選；進度條顯示並開始 3s 倒數；倒數到 0 時自動執行 action |
+| Cancelled（倒數中取消）| 點擊 Toggle 取消勾選 或 點擊「確認下注」/「跟注」手動送出 → 進度條隱藏；倒數計時器清除 |
+
+---
+
 ## 5. Screen Wireframes（詳細佈局規格）
 
 ### SCR-001：Splash / Loading

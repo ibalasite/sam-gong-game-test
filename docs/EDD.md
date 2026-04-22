@@ -262,12 +262,16 @@ onJoin（每位玩家）
   → 驗證 JWT token（RS256/ES256）
   → 驗證 chip_balance ≥ tier entry_chips
   → 預扣 entry escrow（如適用）
-  → 分配 seat_index
+  → 分配 seat_index（若 >= maxClients 拒絕 room_full；與 phase 無關）
   → 初始化 PlayerState
+  → **Mid-game join 判定（BUG-20260422-001）**：若當前 `phase !== 'waiting'`（遊戲進行中），
+    設 `PlayerState.is_waiting_next_round = true`；此玩家本局不發牌、不下注、不跟注、
+    不棄牌、不參與輪莊序列，直至 `resetForNextRound()` 清除旗標正式入局下一局。
+    Server **不得**於 `startNewRound()` 呼叫 `this.lock()`；房間開放加入到 `maxClients` 上限為止。
   → **年齡路由**：讀取 `player_session.is_minor`（來自 JWT payload 或 DB 查詢）；
     - `is_minor === true` → `antiAddiction.trackUnderageDaily(playerId)` （2h 每日上限）
     - `is_minor === false` → `antiAddiction.trackAdultSession(playerId)` （2h 重複提醒）
-  → ≥ 2 人時啟動遊戲循環
+  → ≥ 2 人且 phase === 'waiting' 時啟動遊戲循環（`startNewRound()`）
 
 onLeave（玩家離開）
   → consented=true：即時 Fold（如遊戲進行中）
@@ -347,6 +351,10 @@ export class PlayerState extends Schema {
   @type('boolean') is_folded: boolean = false;
   @type('boolean') has_acted: boolean = false;  // 本輪是否已行動
   @type('boolean') is_banker: boolean = false;
+  @type('boolean') is_waiting_next_round: boolean = false;
+  // BUG-20260422-001：true 表示此玩家在當前局進行中加入（mid-game join），
+  // 本局不發牌、不下注、不跟注、不棄牌、不進輪莊序列；
+  // resetForNextRound() 清除旗標後正式納入下一局（依先進先莊 / 順時鐘輪莊規則）。
   @type('string') display_name: string;
   @type('string') avatar_url: string;
   // 手牌僅透過 filterBy 或私人訊息發送，不放入公開 Schema
@@ -814,6 +822,8 @@ private resetForNextRound(): void {
     player.bet_amount = 0;
     player.has_acted = false;
     player.is_folded = false;
+    // BUG-20260422-001：清除 mid-game join 旗標，使排隊玩家於下一局正式入局
+    player.is_waiting_next_round = false;
     player.hand = new ArraySchema<string>(); // 清空手牌（Server-only 欄位）
   });
 
@@ -825,6 +835,8 @@ private resetForNextRound(): void {
   this.state.settlement = new SettlementState(); // 清空結算結果
 
   // 輪莊（由 BankerRotation.rotate() 計算，統一使用 rotate() API）
+  // BankerRotation 過濾 is_waiting_next_round 與 insolvent 玩家，剛解鎖的排隊玩家
+  // 首次參與不搶莊家位（依 PRD §5.0.3 先進先莊規則）
   this.state.banker_seat_index = this.bankerRotation.rotate(
     this.state.banker_seat_index,
     Array.from(this.state.players.values())
