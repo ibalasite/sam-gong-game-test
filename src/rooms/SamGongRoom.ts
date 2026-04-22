@@ -326,9 +326,24 @@ export class SamGongRoom extends Room<SamGongState> {
       this.waitingTimer = undefined;
     }
 
-    // ≥ 2 人時啟動遊戲
+    // BUG-20260422-009：≥ 2 人 → 3 秒倒數再開局（讓玩家看到「遊戲即將開始」提示）
     if (this.state.players.size >= 2 && this.state.phase === 'waiting') {
-      this.startNewRound();
+      if (!this.phaseTimers.has('game_start')) {
+        const COUNTDOWN_MS = 3_000;
+        this.state.action_deadline_timestamp = Date.now() + COUNTDOWN_MS;
+        this.broadcastRoomState();
+        const startTimer = setTimeout(() => {
+          this.phaseTimers.delete('game_start');
+          // 倒數結束再次確認：仍有 ≥ 2 人且還在等待中才開局
+          if (this.state.players.size >= 2 && this.state.phase === 'waiting') {
+            this.startNewRound();
+          } else {
+            this.state.action_deadline_timestamp = 0;
+            this.broadcastRoomState();
+          }
+        }, COUNTDOWN_MS);
+        this.phaseTimers.set('game_start', startTimer);
+      }
     }
   }
 
@@ -502,6 +517,10 @@ export class SamGongRoom extends Room<SamGongState> {
         this.playerHands.set(p.player_id, hand);
       });
     }
+
+    // BUG-20260422-009：先廣播 room_state（含最新 banker_seat_index）再送 myHand，
+    // 讓 Client 的發牌動畫能從正確的莊家座位飛出，而非還是 -1 的空位。
+    this.broadcastRoomState();
 
     // 發送私人手牌給每位玩家
     this.clients.forEach((client) => {
@@ -1100,6 +1119,14 @@ export class SamGongRoom extends Room<SamGongState> {
     const seatKey = String(playerState.seat_index);
     this.state.players.delete(seatKey);
     this.playerHands.delete(playerState.player_id);
+
+    // BUG-20260422-009：若倒數中有人離場導致 < 2 人，取消遊戲倒數
+    if (this.state.players.size < 2 && this.phaseTimers.has('game_start')) {
+      clearTimeout(this.phaseTimers.get('game_start') as ReturnType<typeof setTimeout>);
+      this.phaseTimers.delete('game_start');
+      this.state.action_deadline_timestamp = 0;
+      this.broadcastRoomState();
+    }
 
     // 若剩餘玩家不足 2 人且在等待中，啟動解散計時器
     if (this.state.players.size < 2 && this.state.phase === 'waiting') {

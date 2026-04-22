@@ -133,17 +133,18 @@ input:focus{border-color:var(--gold)}
 }
 .fpanel.left {left:10px; top:auto; bottom:10px; max-height:48vh}
 .fpanel.right{right:10px}
-/* 堆疊容器：操作面板與聊天室共用左下角，操作在上、聊天在下 */
+/* 堆疊容器：聊天室（左）+ 操作面板（右，聊天旁），並排於左下角 */
 .left-stack{
-  position:fixed; left:10px; bottom:10px; width:220px;
-  max-height:calc(100vh - 60px);
-  display:flex; flex-direction:column; gap:8px; z-index:10;
-  pointer-events:none;   /* 容器本身不吃事件，子面板各自吃 */
+  position:fixed; left:10px; bottom:10px;
+  display:flex; flex-direction:row; gap:10px; z-index:10;
+  align-items:flex-end;   /* 兩個面板高度不同時從底對齊 */
+  pointer-events:none;
+  max-width:calc(100vw - 20px);
 }
 .left-stack > .fpanel.stacked{
-  position:static; width:100%; top:auto; bottom:auto; left:auto; right:auto;
+  position:static; width:230px; top:auto; bottom:auto; left:auto; right:auto;
   pointer-events:auto;
-  max-height:40vh;   /* 每個面板最多 40vh，留空間給桌面 */
+  max-height:60vh;   /* 放寬為 60vh 確保下注按鈕可見 */
 }
 .left-stack > .fpanel.stacked.minimized{
   max-height:44px;   /* 收合後只留標題 bar */

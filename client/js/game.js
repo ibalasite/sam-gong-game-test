@@ -42,6 +42,20 @@ let _lastBetAnimAt  = 0;   // timestamp of last coin-to-pot animation (ms)
 // _dealAnim.dealtForSeat：{seat_index: 已飛到的張數（0-3）}，用於逐張呈現
 let _dealAnim = { inProgress: false, dealtForSeat: {} };
 let _myHandRevealedCount = 0;   // 自己手牌已翻面的張數（0-3）
+// BUG-20260422-009：遊戲開始倒數（waiting phase 2 人就緒後的 3 秒）每秒 re-render
+let _countdownTicker = null;
+function startCountdownTicker() {
+  if (_countdownTicker) return;
+  _countdownTicker = setInterval(() => {
+    if (!_state || _state.phase !== 'waiting') { stopCountdownTicker(); return; }
+    const dl = Number(_state.action_deadline_timestamp || 0);
+    if (dl <= 0 || dl <= Date.now()) { stopCountdownTicker(); renderState(_state); return; }
+    renderState(_state);
+  }, 500);
+}
+function stopCountdownTicker() {
+  if (_countdownTicker) { clearInterval(_countdownTicker); _countdownTicker = null; }
+}
 // BUG-20260422-005：座位相對映射（圓桌邏輯）— 每次 render 更新
 let _seatPosMap = null;   // { offsetToPos:string[], mySeat:number, seatAtOffset:array }
 function seatOffsetOf(seatIndex) {
@@ -537,7 +551,11 @@ function updateActionMarquee(s, me) {
     bits.push('⏳ 您中途加入，等待下一局');
   } else if (phase === 'waiting') {
     const cnt = Array.isArray(s.players) ? s.players.length : 0;
-    bits.push(cnt < 2 ? `⏳ 等待更多玩家（${cnt}/6）` : `✅ ${cnt} 名玩家就緒，即將開始`);
+    const dl = Number(s.action_deadline_timestamp || 0);
+    const secsLeft = dl > 0 ? Math.max(0, Math.ceil((dl - Date.now()) / 1000)) : 0;
+    if (cnt < 2) bits.push(`⏳ 等待更多玩家（${cnt}/6）`);
+    else if (secsLeft > 0) bits.push(`🎬 遊戲 ${secsLeft} 秒後開始`);
+    else bits.push(`✅ ${cnt} 名玩家就緒，即將發牌`);
   } else if (phase === 'dealing') {
     bits.push('🎴 發牌中...');
   } else if (phase === 'banker-bet') {
@@ -963,9 +981,17 @@ function renderActions(s, me) {
 
   if (phase === 'waiting') {
     const cnt = Array.isArray(s.players) ? s.players.length : 0;
-    box.innerHTML = cnt < 2
-      ? `<p class="hint">等待更多玩家加入（${cnt}/6）<br><small style="font-size:.7rem;color:#555">需 2 人自動開始</small></p>`
-      : `<p class="hint gold">✅ ${cnt} 名玩家就緒<br>遊戲即將開始...</p>`;
+    // BUG-20260422-009：≥ 2 人時 Server 啟動 3 秒倒數，Client 顯示「N 秒後開始」
+    const deadline = Number(s.action_deadline_timestamp || 0);
+    const secsLeft = deadline > 0 ? Math.max(0, Math.ceil((deadline - Date.now()) / 1000)) : 0;
+    if (cnt < 2) {
+      box.innerHTML = `<p class="hint">等待更多玩家加入（${cnt}/6）<br><small style="font-size:.7rem;color:#555">需 2 人自動開始</small></p>`;
+    } else if (secsLeft > 0) {
+      box.innerHTML = `<p class="hint gold">🎬 遊戲將在 <span style="font-size:1.6rem;font-weight:900">${secsLeft}</span> 秒後開始</p>`;
+      startCountdownTicker();
+    } else {
+      box.innerHTML = `<p class="hint gold">✅ ${cnt} 名玩家就緒<br>即將發牌...</p>`;
+    }
     return;
   }
 

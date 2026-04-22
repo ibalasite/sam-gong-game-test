@@ -51,9 +51,22 @@
     </div>
   </div>
 
-  <!-- ── bottom-left stacked panels (action above chat) ─────────────────── -->
+  <!-- ── bottom-left side-by-side panels (chat | action) ─────────────────── -->
   <div class="left-stack">
-    <!-- action panel — 操作 -->
+    <!-- chat panel — 聊天室（左）-->
+    <div class="fpanel stacked" id="chat-panel">
+      <div class="ptitle">
+        <span class="ptitle-name">💬 聊天室</span>
+        <button id="chat-toggle" class="panel-toggle" title="縮小 / 還原" aria-label="縮小聊天室">−</button>
+      </div>
+      <div id="chat-log" class="clog"></div>
+      <div class="crow">
+        <input id="chatinp" type="text" placeholder="輸入訊息..." maxlength="60">
+        <button id="chatsend" class="btn sec sm">送</button>
+      </div>
+    </div>
+
+    <!-- action panel — 操作（右，聊天室旁）-->
     <div class="fpanel stacked" id="action-panel">
       <div class="ptitle">
         <span class="ptitle-name">🎮 操作</span>
@@ -72,19 +85,6 @@
         <div class="share-lbl">📡 房間代號</div>
         <div class="share-code" id="roomid">—</div>
         <button class="btn sec sm" id="copybtn" style="width:100%;margin-top:6px">📋 複製邀請連結</button>
-      </div>
-    </div>
-
-    <!-- chat panel — 聊天室 -->
-    <div class="fpanel stacked" id="chat-panel">
-      <div class="ptitle">
-        <span class="ptitle-name">💬 聊天室</span>
-        <button id="chat-toggle" class="panel-toggle" title="縮小 / 還原" aria-label="縮小聊天室">−</button>
-      </div>
-      <div id="chat-log" class="clog"></div>
-      <div class="crow">
-        <input id="chatinp" type="text" placeholder="輸入訊息..." maxlength="60">
-        <button id="chatsend" class="btn sec sm">送</button>
       </div>
     </div>
   </div>
