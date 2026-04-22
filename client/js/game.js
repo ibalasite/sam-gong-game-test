@@ -1166,6 +1166,17 @@ function leaveGame() {
 }
 
 // ── Init ──────────────────────────────────────────────────
+// BUG-20260422-008：頁面關閉 / 換網址 / 重整時，明確送 consented leave
+// （Colyseus 預設 room.leave() 即 consented=true，Server 立即移除玩家，
+//  不走 30 秒重連視窗；否則該玩家座位會被保留到 reconnectTimeout 超時）
+function tryLeaveOnUnload() {
+  try { _room?.leave(true); } catch (_) { /* ignore */ }
+  _room = null;
+}
+window.addEventListener('beforeunload', tryLeaveOnUnload);
+// pagehide 對手機 Safari 更可靠（bfcache 場景）
+window.addEventListener('pagehide', tryLeaveOnUnload);
+
 document.addEventListener('DOMContentLoaded', () => {
   fetch('http://'+API_HOST+'/api/v1/health')
     .then(r=>r.json()).then(()=>{ $('apistatus').textContent='✅ 伺服器正常'; })
