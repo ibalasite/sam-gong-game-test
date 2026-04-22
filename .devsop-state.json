@@ -39,5 +39,6 @@
     "31"
   ],
   "last_updated": "2026-04-22T00:00:00Z",
-  "lang_stack": "Cocos Creator 3.8.x + Colyseus 0.15.x + Node.js 22.x + TypeScript 5.4.x + PostgreSQL 16.x + Redis 7.x"
+  "lang_stack": "Cocos Creator 3.8.x + Colyseus 0.15.x + Node.js 22.x + TypeScript 5.4.x + PostgreSQL 16.x + Redis 7.x",
+  "client_type": "cocos-creator"
 }

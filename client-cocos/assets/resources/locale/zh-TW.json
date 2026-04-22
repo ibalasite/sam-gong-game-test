@@ -1,0 +1,49 @@
+{
+  "lobby": {
+    "chips": "🪙 {{amount}}",
+    "quickMatch": "快速配對",
+    "tutorial": "新手教學",
+    "settings": "設定",
+    "leaderboard": "排行榜"
+  },
+  "matchmaking": {
+    "searching": "🔍 配對中...",
+    "elapsed": "已等待 {{seconds}} 秒",
+    "timeout": "⏱ 配對超時，返回大廳",
+    "cancel": "取消配對"
+  },
+  "game": {
+    "pot": "獎池：🪙 {{amount}}",
+    "chips": "🪙 {{amount}}",
+    "bet": "押：{{amount}}",
+    "bankerBet": "莊家押注：{{amount}}",
+    "autoAct": "自動（{{secs}}s）",
+    "reconnecting": "重新連線中...",
+    "phase": {
+      "waiting": "等待玩家",
+      "dealing": "發牌中",
+      "banker-bet": "莊家押注",
+      "player-bet": "閒家跟注",
+      "showdown": "開牌中",
+      "settled": "結算"
+    },
+    "handType": {
+      "sam_gong": "🎴 三公",
+      "pair": "對子",
+      "flush": "同花",
+      "straight": "順子",
+      "high_card": "散牌",
+      "bust": "爆牌"
+    }
+  },
+  "settlement": {
+    "win": "🏆 +{{amount}}",
+    "lose": "😞 -{{amount}}",
+    "countdown": "{{secs}}s 後繼續..."
+  },
+  "errors": {
+    "disconnected": "已斷線，請重新整理",
+    "already_in_room": "您已在遊戲中",
+    "insufficient_chips": "籌碼不足"
+  }
+}
