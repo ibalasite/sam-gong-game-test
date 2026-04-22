@@ -3,45 +3,88 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>三公 Sam Gong — 多人撲克</title>
+  <title>三公 Sam Gong</title>
   <link rel="stylesheet" href="css/style.css">
-
-  <!-- Colyseus JS client SDK -->
   <script src="https://unpkg.com/colyseus.js@0.15.21/dist/colyseus.js"></script>
 </head>
 <body>
 
-  <!-- ── Login Screen ─────────────────────────────── -->
-  <div id="login-screen" class="screen">
-    <div class="login-box">
-      <div class="game-title">三公</div>
-      <div class="game-subtitle">Sam Gong — Multiplayer Card Game</div>
+<!-- ══ LOGIN ══════════════════════════════════════════ -->
+<div id="login" style="display:flex">
+  <div class="lbox">
+    <div class="gtitle">三公</div>
+    <div class="gsub">Sam Gong — Multiplayer Card Game</div>
+    <input id="nick" type="text" placeholder="暱稱（留空自動產生）" maxlength="20" autofocus>
+    <button id="joinbtn" class="btn pri">🎴 進入遊戲</button>
+    <div id="errmsg" style="font-size:.82rem;color:#ffcc80;text-align:center;min-height:18px"></div>
+    <div id="apistatus" style="font-size:.75rem;color:#555;text-align:center"></div>
+    <div style="font-size:.72rem;color:#444;text-align:center;border-top:1px solid rgba(255,255,255,.08);padding-top:10px">
+      本機開發版 — ws://localhost:2567
+    </div>
+  </div>
+</div>
 
-      <input type="text" id="nick-input" placeholder="輸入暱稱（可留空自動產生）" maxlength="20" autofocus>
+<!-- ══ GAME ═══════════════════════════════════════════ -->
+<div id="game" style="display:none">
 
-      <button class="btn btn-primary" id="join-btn" onclick="devJoin()">🎴 進入遊戲</button>
+  <!-- felt table -->
+  <div class="felt">
+    <!-- 6 seat positions -->
+    <div class="seat s-bot"  id="s-bot"></div>
+    <div class="seat s-bl"   id="s-bl"></div>
+    <div class="seat s-tl"   id="s-tl"></div>
+    <div class="seat s-top"  id="s-top"></div>
+    <div class="seat s-tr"   id="s-tr"></div>
+    <div class="seat s-br"   id="s-br"></div>
 
-      <div class="status-msg" id="status-msg">正在檢查伺服器...</div>
-
-      <div style="border-top:1px solid rgba(255,255,255,0.1);padding-top:12px;font-size:0.75rem;color:#666;text-align:center">
-        本機開發版 — 連接至 ws://localhost:2567
-      </div>
+    <!-- center oval -->
+    <div class="oval">
+      <div class="oplbl" id="c-phase">等待玩家</div>
+      <div class="opot"  id="c-pot">0</div>
+      <div class="ohall" id="c-hall">青銅廳</div>
     </div>
   </div>
 
-  <!-- ── Game Screen ───────────────────────────────── -->
-  <div id="game-screen" class="screen"></div>
-
-  <!-- Global toast + connection bar -->
-  <div class="toast-container" id="toast-container"></div>
-  <div class="conn-bar">
-    <span>
-      <span class="conn-dot connecting" id="conn-dot"></span>
-      <span id="conn-label">連線中...</span>
-    </span>
-    <span style="color:#444">Sam Gong v1.0 · Local Dev</span>
+  <!-- ── floating chat panel ─────────────────── -->
+  <div class="fpanel left">
+    <div class="ptitle">💬 聊天室</div>
+    <div id="chat-log" class="clog"></div>
+    <div class="crow">
+      <input id="chatinp" type="text" placeholder="輸入訊息..." maxlength="60">
+      <button id="chatsend" class="btn sec sm">送</button>
+    </div>
   </div>
 
-  <script src="js/game.js"></script>
+  <!-- ── floating action panel ──────────────── -->
+  <div class="fpanel right">
+    <div class="ptitle">🎮 操作</div>
+    <div id="actions" class="abox">
+      <p class="hint">等待中...</p>
+    </div>
+    <div class="rinfo">
+      房間 <span id="roomid" style="font-family:monospace;color:#80cbc4">—</span>
+    </div>
+  </div>
+
+  <!-- ── result overlay ─────────────────────── -->
+  <div id="result" style="display:none" class="result-ov">
+    <div id="rtitle" class="rtitle"></div>
+    <div id="rdetail" style="font-size:1.1rem;color:#ccc;margin:8px 0 20px"></div>
+    <button class="btn pri" onclick="document.getElementById('result').style.display='none'">繼續</button>
+  </div>
+
+  <!-- ── top bar ────────────────────────────── -->
+  <div class="topbar">
+    <span><span class="cdot on" id="cdot"></span><span id="clbl">已連線</span></span>
+    <span class="devbadge">DEV LOCAL</span>
+    <button class="leavebtn" onclick="leaveGame()">離開</button>
+  </div>
+
+</div>
+
+<!-- global toasts -->
+<div id="toasts" class="toasts"></div>
+
+<script src="js/game.js"></script>
 </body>
 </html>
