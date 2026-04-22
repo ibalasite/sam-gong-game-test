@@ -21,6 +21,7 @@ import { SettlementEngine } from '../game/SettlementEngine';
 import { BankerRotation } from '../game/BankerRotation';
 import { DeckManager, CardDTO } from '../game/DeckManager';
 import { AntiAddictionManager } from '../game/AntiAddictionManager';
+import { ensureUser, recordSettlement, isDbReady } from '../persistence/db';
 
 // ──── Message Type Definitions ────
 
@@ -131,12 +132,17 @@ export class SamGongRoom extends Room<SamGongState> {
     // ── Dev mode bypass ──────────────────────────────────────────────────
     if (isDev) {
       const nickname = (options as unknown as { nickname?: string }).nickname ?? 'DevPlayer';
-      const playerId = 'dev_' + Math.random().toString(36).slice(2, 10);
-      console.log(`[onAuth] DEV MODE — auto auth for "${nickname}" (${playerId})`);
+      // BUG-20260422-019 Stage 2：dev 模式用 nickname 做穩定 player_id，
+      // 讓同一暱稱重新連線時仍能從 DB 讀回上次的 chip_balance
+      const stableId = 'dev_' + nickname.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 32);
+      const playerId = stableId || 'dev_anon';
+      // 從 DB 讀取（不存在則建立 + 回傳預設 100,000）；DB 不可用則 fallback 100,000
+      const chipBalance = await ensureUser(playerId, nickname);
+      console.log(`[onAuth] DEV MODE — "${nickname}" (${playerId}) chip_balance=${chipBalance}${isDbReady() ? ' [DB]' : ' [mem-fallback]'}`);
       return {
         player_id: playerId,
         display_name: nickname,
-        chip_balance: 100_000,   // 10萬測試籌碼
+        chip_balance: chipBalance,
         avatar_url: '',
         is_minor: false,
       };
@@ -886,6 +892,23 @@ export class SamGongRoom extends Room<SamGongState> {
       const bankerState = players.find((p) => p.seat_index === bankerSeat);
       if (bankerState) {
         bankerState.chip_balance += this.state.banker_bet_amount + result.banker_settlement.net_chips;
+      }
+
+      // BUG-20260422-019 Stage 2：結算結果寫入 DB（fire-and-forget；DB 不可用時降級為 in-memory）
+      const roundId = `${this.roomId}:${this.state.round_number}`;
+      for (const r of nonBankerResults) {
+        const p = players.find((pp) => pp.seat_index === r.seat_index);
+        if (!p) continue;
+        const txType = r.result === 'win' ? 'game_win'
+          : r.result === 'lose' ? 'game_lose'
+          : r.result === 'tie' ? 'game_tie'
+          : r.result === 'insolvent_win' ? 'game_insolvent_win'
+          : r.result === 'fold' ? 'game_fold'
+          : 'game_other';
+        recordSettlement(p.player_id, p.chip_balance, r.net_chips, txType, roundId);
+      }
+      if (bankerState) {
+        recordSettlement(bankerState.player_id, bankerState.chip_balance, result.banker_settlement.net_chips, 'game_banker', roundId);
       }
 
       // 廣播最新 Room State（含結算結果 + 更新後籌碼）
