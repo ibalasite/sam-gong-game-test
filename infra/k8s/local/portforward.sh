@@ -50,11 +50,14 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # ── Port Forward ──────────────────────────────────────────
-kubectl port-forward svc/sam-gong-client-service   8080:80   -n "$NS" &>/dev/null &
-kubectl port-forward svc/sam-gong-api-service      3000:3000 -n "$NS" &>/dev/null &
-kubectl port-forward svc/sam-gong-server-service   2567:2567 -n "$NS" &>/dev/null &
-kubectl port-forward svc/postgres-service          5432:5432 -n "$NS" &>/dev/null &
-kubectl port-forward svc/redis-service             6379:6379 -n "$NS" &>/dev/null &
+# Client (nginx 反代 /matchmake、/api、room WS 到對應 service)
+# 改掉預設 port 避免跟其他專案衝突 (fish-cocos 用 3000)
+kubectl port-forward svc/sam-gong-client-service   18080:80   -n "$NS" &>/dev/null &
+# 直連 (debug only — 平常都走 client 反代就好)
+kubectl port-forward svc/sam-gong-api-service      13000:3000 -n "$NS" &>/dev/null &
+kubectl port-forward svc/sam-gong-server-service   12567:2567 -n "$NS" &>/dev/null &
+kubectl port-forward svc/postgres-service          15432:5432 -n "$NS" &>/dev/null &
+kubectl port-forward svc/redis-service             16379:6379 -n "$NS" &>/dev/null &
 
 sleep 2  # 等待 port-forward 建立
 
@@ -62,19 +65,19 @@ echo ""
 echo -e "${_CYAN}╔════════════════════════════════════════════════════════╗${_RESET}"
 echo -e "${_CYAN}║              🎴 本機測試入口清單                       ║${_RESET}"
 echo -e "${_CYAN}╠════════════════════════════════════════════════════════╣${_RESET}"
-echo -e "${_CYAN}║${_RESET}  前端頁面    ${_GREEN}http://localhost:8080${_RESET}                   ${_CYAN}║${_RESET}"
-echo -e "${_CYAN}║${_RESET}  REST API    ${_GREEN}http://localhost:3000/api/v1/health${_RESET}     ${_CYAN}║${_RESET}"
-echo -e "${_CYAN}║${_RESET}  Colyseus WS ${_GREEN}ws://localhost:2567${_RESET}                     ${_CYAN}║${_RESET}"
-echo -e "${_CYAN}║${_RESET}  Colyseus 監 ${_GREEN}http://localhost:2567/colyseus${_RESET}          ${_CYAN}║${_RESET}"
-echo -e "${_CYAN}║${_RESET}  PostgreSQL  ${_YELLOW}localhost:5432${_RESET}  db=sam_gong             ${_CYAN}║${_RESET}"
-echo -e "${_CYAN}║${_RESET}             ${_YELLOW}user=sam_gong_app  pass=dev_password...${_RESET}  ${_CYAN}║${_RESET}"
-echo -e "${_CYAN}║${_RESET}  Redis       ${_YELLOW}localhost:6379${_RESET}  pass=dev_redis_password ${_CYAN}║${_RESET}"
+echo -e "${_CYAN}║${_RESET}  前端頁面    ${_GREEN}http://localhost:18080${_RESET}                  ${_CYAN}║${_RESET}"
+echo -e "${_CYAN}║${_RESET}  REST API    ${_GREEN}http://localhost:18080/api/v1/health${_RESET}    ${_CYAN}║${_RESET}"
+echo -e "${_CYAN}║${_RESET}  Colyseus    ${_GREEN}wss/ws://localhost:18080 (走 nginx 反代)${_RESET} ${_CYAN}║${_RESET}"
+echo -e "${_CYAN}║${_RESET}  Direct API  ${_YELLOW}http://localhost:13000${_RESET}  (debug only)    ${_CYAN}║${_RESET}"
+echo -e "${_CYAN}║${_RESET}  Direct WS   ${_YELLOW}http://localhost:12567${_RESET}  (debug only)    ${_CYAN}║${_RESET}"
+echo -e "${_CYAN}║${_RESET}  PostgreSQL  ${_YELLOW}localhost:15432${_RESET}  db=sam_gong            ${_CYAN}║${_RESET}"
+echo -e "${_CYAN}║${_RESET}  Redis       ${_YELLOW}localhost:16379${_RESET}                          ${_CYAN}║${_RESET}"
 echo -e "${_CYAN}╠════════════════════════════════════════════════════════╣${_RESET}"
 echo -e "${_CYAN}║${_RESET}  文件網站    ${_GREEN}file://$(pwd)/docs/site/index.html${_RESET}"
 echo -e "${_CYAN}╠════════════════════════════════════════════════════════╣${_RESET}"
 echo -e "${_CYAN}║${_RESET}  快速測試：                                             ${_CYAN}║${_RESET}"
-echo -e "${_CYAN}║${_RESET}    curl http://localhost:3000/api/v1/health             ${_CYAN}║${_RESET}"
-echo -e "${_CYAN}║${_RESET}    curl http://localhost:2567/health                    ${_CYAN}║${_RESET}"
+echo -e "${_CYAN}║${_RESET}    curl http://localhost:18080/api/v1/health            ${_CYAN}║${_RESET}"
+echo -e "${_CYAN}║${_RESET}    curl http://localhost:18080/health (從 client 反代) ${_CYAN}║${_RESET}"
 echo -e "${_CYAN}╚════════════════════════════════════════════════════════╝${_RESET}"
 echo ""
 echo "按 Ctrl+C 關閉所有 port-forward"

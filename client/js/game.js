@@ -5,10 +5,13 @@
  */
 'use strict';
 
-const WS_HOST = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-  ? 'localhost:2567' : location.hostname + ':2567';
-const API_HOST = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-  ? 'localhost:3000' : location.hostname + ':3000';
+// Always same-origin: nginx in client pod reverse-proxies /matchmake, /<roomId>, /api/
+// to the in-cluster services. Works for local k8s (port-forward 8080), tunnel, prod.
+const _wsScheme = (location.protocol === 'https:') ? 'wss' : 'ws';
+const _WS_BASE  = _wsScheme + '://' + location.host;
+const _API_BASE = location.protocol + '//' + location.host;
+const WS_HOST   = location.host;
+const API_HOST  = location.host;
 
 const PHASE_NAMES = {
   waiting:'等待玩家', dealing:'發牌中',
@@ -218,7 +221,7 @@ async function joinGame(forceRoomId) {
   $('errmsg').textContent = '';
   try {
     if (!window.Colyseus) throw new Error('Colyseus SDK 未載入');
-    _client = new Colyseus.Client('ws://'+WS_HOST);
+    _client = new Colyseus.Client(_WS_BASE);
     if (roomIdInput) {
       // 有填房間代號 → 加入指定房間
       _room = await _client.joinById(roomIdInput, { nickname:_nick, token:'dev' });
@@ -1361,7 +1364,7 @@ window.addEventListener('beforeunload', tryLeaveOnUnload);
 window.addEventListener('pagehide', tryLeaveOnUnload);
 
 document.addEventListener('DOMContentLoaded', () => {
-  fetch('http://'+API_HOST+'/api/v1/health')
+  fetch(_API_BASE+'/api/v1/health')
     .then(r=>r.json()).then(()=>{ $('apistatus').textContent='✅ 伺服器正常'; })
     .catch(()=>{ $('apistatus').textContent='⚠️ API無回應（port-forward是否開啟？）'; });
 

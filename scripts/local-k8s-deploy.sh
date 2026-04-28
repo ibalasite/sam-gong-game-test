@@ -49,15 +49,10 @@ if kubectl config current-context 2>/dev/null | grep -q "minikube"; then
   ok "偵測到 minikube，稍後使用 minikube docker-env"
 fi
 
-# ── Step 2：Reset（可選）─────────────────────────────────
-if $RESET; then
-  step "2/7" "Reset：刪除舊的 namespace $NS"
-  kubectl delete namespace "$NS" --ignore-not-found=true
-  ok "舊 namespace 已刪除"
-  sleep 5
-else
-  step "2/7" "跳過 Reset（使用 --reset 可清空重建）"
-fi
+# ── Step 2：Reset — 每次都清空（密碼隨機，舊 PVC 用舊密碼會連不上）──
+step "2/7" "Reset：刪除舊的 namespace $NS（每次啟動都用新密碼，必須清空）"
+kubectl delete namespace "$NS" --ignore-not-found=true --wait=true
+ok "舊 namespace + PVC 已清空"
 
 # ── Step 3：設定 Docker 環境（minikube only）──────────────
 step "3/7" "設定 Docker build 環境"
@@ -97,9 +92,24 @@ step "5/7" "Apply k8s manifests → namespace: $NS"
 kubectl apply -f "$K8S_LOCAL_DIR/namespace-local.yaml"
 ok "Namespace: $NS"
 
-kubectl apply -f "$K8S_LOCAL_DIR/secret-local.yaml"
-warn "使用開發用假 secret（JWT keys 是 placeholder，需替換才能真正啟動 auth）"
-warn "執行 bash scripts/secrets/generate-jwt-keys.sh 生成真實 JWT keys"
+# ── 每次啟動產生隨機 secret，不寫檔、不留 history ───────────
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+DB_PW=$(openssl rand -base64 24 | tr -d '\n/+=' | head -c 32)
+REDIS_PW=$(openssl rand -base64 24 | tr -d '\n/+=' | head -c 32)
+OTP_KEY=$(openssl rand -hex 32)
+openssl genrsa -out "$TMPDIR/jwt.pem" 2048 2>/dev/null
+openssl rsa -in "$TMPDIR/jwt.pem" -pubout -out "$TMPDIR/jwt.pub" 2>/dev/null
+
+kubectl create secret generic sam-gong-secrets -n "$NS" \
+  --from-literal=DB_PASSWORD="$DB_PW" \
+  --from-literal=REDIS_PASSWORD="$REDIS_PW" \
+  --from-literal=OTP_API_KEY="$OTP_KEY" \
+  --from-file=JWT_PRIVATE_KEY="$TMPDIR/jwt.pem" \
+  --from-file=JWT_PUBLIC_KEY="$TMPDIR/jwt.pub" \
+  --dry-run=client -o yaml | kubectl apply -f -
+ok "Secret: 隨機生成（DB / Redis / OTP / JWT pair），未落地"
+unset DB_PW REDIS_PW OTP_KEY
 
 kubectl apply -f "$K8S_LOCAL_DIR/configmap-local.yaml"
 ok "ConfigMap"
@@ -149,8 +159,4 @@ echo -e "${_CYAN}${_BOLD}║${_RESET}    REST API→ ${_GREEN}http://localhost:3
 echo -e "${_CYAN}${_BOLD}║${_RESET}    WS      → ${_GREEN}ws://localhost:2567${_RESET}                            ${_CYAN}${_BOLD}║${_RESET}"
 echo -e "${_CYAN}${_BOLD}║${_RESET}    Colyseus → ${_GREEN}http://localhost:2567/colyseus${_RESET}  (Monitor)     ${_CYAN}${_BOLD}║${_RESET}"
 echo -e "${_CYAN}${_BOLD}╚════════════════════════════════════════════════════════════╝${_RESET}"
-echo ""
-echo -e "  ${_YELLOW}⚠️  JWT keys 是 placeholder，需先執行：${_RESET}"
-echo "     bash scripts/secrets/generate-jwt-keys.sh"
-echo "     然後重新 apply secret：kubectl apply -f infra/k8s/local/secret-local.yaml"
 echo ""
